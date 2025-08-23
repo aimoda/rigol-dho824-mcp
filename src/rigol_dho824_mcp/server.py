@@ -763,13 +763,13 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_acquisition_type(
-        acq_type: Annotated[str, Field(description="Acquisition type: NORMAL, AVERAGE, PEAK, or HIGHRES")]
+        acq_type: Annotated[str, Field(description="Acquisition type: NORMAL, AVERAGE, PEAK, or ULTRA")]
     ) -> Dict[str, Any]:
         """
         Set acquisition type.
         
         Args:
-            acq_type: Acquisition type ("NORMAL", "AVERAGE", "PEAK", "HIGHRES")
+            acq_type: Acquisition type ("NORMAL", "AVERAGE", "PEAK", "ULTRA")
             
         Returns:
             Status dictionary with actual type set

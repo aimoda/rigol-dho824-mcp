@@ -126,20 +126,21 @@ class AcquisitionControl:
         
         Args:
             instrument: PyVISA instrument instance
-            acq_type: Acquisition type ("NORMAL", "AVERAGE", "PEAK", "HIGHRES")
+            acq_type: Acquisition type ("NORMAL", "AVERAGE", "PEAK", "ULTRA")
             
         Returns:
             Status dictionary
         """
         # Map friendly names to SCPI format
         type_map = {
-            "NORMAL": "NORM",
-            "NORM": "NORM",
-            "AVERAGE": "AVER",
-            "AVER": "AVER",
+            "NORMAL": "NORMal",
+            "NORM": "NORMal",
+            "AVERAGE": "AVERages", 
+            "AVER": "AVERages",
+            "AVERAGES": "AVERages",
             "PEAK": "PEAK",
-            "HIGHRES": "HRES",
-            "HRES": "HRES"
+            "ULTRA": "ULTRa",
+            "ULTR": "ULTRa"
         }
         
         acq_type = acq_type.upper()
@@ -152,9 +153,25 @@ class AcquisitionControl:
         # Verify the setting
         actual_type = instrument.query(':ACQ:TYPE?').strip()
         
+        # Map SCPI responses back to user-friendly names
+        response_map = {
+            "NORM": "NORMAL",
+            "AVER": "AVERAGE", 
+            "PEAK": "PEAK",
+            "ULTR": "ULTRA"
+        }
+        
+        # Check if command succeeded (compare SCPI response with expected)
+        expected_response = {
+            "NORMal": "NORM",
+            "AVERages": "AVER", 
+            "PEAK": "PEAK",
+            "ULTRa": "ULTR"
+        }
+        
         return {
-            "acquisition_type": actual_type,
-            "success": actual_type == scpi_type
+            "acquisition_type": response_map.get(actual_type, actual_type),
+            "success": actual_type == expected_response.get(scpi_type, scpi_type)
         }
     
     @staticmethod
