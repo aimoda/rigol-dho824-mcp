@@ -1,7 +1,7 @@
 """MCP server for Rigol DHO824 oscilloscope."""
 
 import os
-from typing import Optional, TypedDict, Annotated, Literal, Union
+from typing import Optional, TypedDict, Annotated
 from pydantic import Field
 from fastmcp import FastMCP
 from dotenv import load_dotenv
@@ -21,12 +21,6 @@ class SoftwareVersionResult(TypedDict):
 class SerialNumberResult(TypedDict):
     """Result containing the oscilloscope serial number."""
     serial: Annotated[str, Field(description="The unique serial number", examples=["DHO8240000001", "DHO8040000123", "DHO9140000456"])]
-
-
-class ScopeError(TypedDict):
-    """Error response when oscilloscope operation fails."""
-    success: Annotated[Literal[False], Field(description="Always False for error responses")]
-    error: Annotated[str, Field(description="Descriptive error message", examples=["Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable.", "Failed to parse oscilloscope identity", "Connection timeout"])]
 
 
 class RigolDHO824:
@@ -144,7 +138,7 @@ def create_server() -> FastMCP:
     scope = RigolDHO824(resource_string if resource_string else None, timeout)
     
     @mcp.tool
-    async def get_model_number() -> Union[ModelNumberResult, ScopeError]:
+    async def get_model_number() -> ModelNumberResult:
         """
         Get the model number of the connected Rigol oscilloscope.
         
@@ -153,32 +147,23 @@ def create_server() -> FastMCP:
         """
         try:
             if not scope.connect():
-                return ScopeError(
-                    success=False,
-                    error="Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
-                )
+                raise Exception("Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable.")
             
             identity_parts = scope.parse_identity()
             if not identity_parts:
-                return ScopeError(
-                    success=False,
-                    error="Failed to parse oscilloscope identity"
-                )
+                raise Exception("Failed to parse oscilloscope identity")
             
             return ModelNumberResult(
                 model=identity_parts['model']
             )
             
         except Exception as e:
-            return ScopeError(
-                success=False,
-                error=f"Error getting model number: {str(e)}"
-            )
+            raise Exception(f"Error getting model number: {str(e)}") from e
         finally:
             scope.disconnect()
     
     @mcp.tool
-    async def get_software_version() -> Union[SoftwareVersionResult, ScopeError]:
+    async def get_software_version() -> SoftwareVersionResult:
         """
         Get the software/firmware version of the connected Rigol oscilloscope.
         
@@ -187,32 +172,23 @@ def create_server() -> FastMCP:
         """
         try:
             if not scope.connect():
-                return ScopeError(
-                    success=False,
-                    error="Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
-                )
+                raise Exception("Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable.")
             
             identity_parts = scope.parse_identity()
             if not identity_parts:
-                return ScopeError(
-                    success=False,
-                    error="Failed to parse oscilloscope identity"
-                )
+                raise Exception("Failed to parse oscilloscope identity")
             
             return SoftwareVersionResult(
                 version=identity_parts['version']
             )
             
         except Exception as e:
-            return ScopeError(
-                success=False,
-                error=f"Error getting software version: {str(e)}"
-            )
+            raise Exception(f"Error getting software version: {str(e)}") from e
         finally:
             scope.disconnect()
     
     @mcp.tool
-    async def get_serial_number() -> Union[SerialNumberResult, ScopeError]:
+    async def get_serial_number() -> SerialNumberResult:
         """
         Get the serial number of the connected Rigol oscilloscope.
         
@@ -221,27 +197,18 @@ def create_server() -> FastMCP:
         """
         try:
             if not scope.connect():
-                return ScopeError(
-                    success=False,
-                    error="Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
-                )
+                raise Exception("Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable.")
             
             identity_parts = scope.parse_identity()
             if not identity_parts:
-                return ScopeError(
-                    success=False,
-                    error="Failed to parse oscilloscope identity"
-                )
+                raise Exception("Failed to parse oscilloscope identity")
             
             return SerialNumberResult(
                 serial=identity_parts['serial']
             )
             
         except Exception as e:
-            return ScopeError(
-                success=False,
-                error=f"Error getting serial number: {str(e)}"
-            )
+            raise Exception(f"Error getting serial number: {str(e)}") from e
         finally:
             scope.disconnect()
     
