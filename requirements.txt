@@ -1,0 +1,4 @@
+fastmcp>=0.2.0
+pyvisa>=1.13.0
+pyvisa-py>=0.7.0
+python-dotenv>=1.0.0
