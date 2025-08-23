@@ -9,7 +9,7 @@ import pyvisa
 
 # Import our modules
 from .waveform import WaveformCapture
-from .channel import ChannelControl
+from .channel import ChannelControl, BandwidthLimit
 from .trigger import TriggerControl
 from .acquisition import AcquisitionControl
 
@@ -360,15 +360,26 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_channel_bandwidth(
-        channel: Annotated[int, Field(description="Channel number (1-4)")],
-        bandwidth: Annotated[Optional[str], Field(description="Bandwidth limit: OFF, 20M, or 100M")] = None
+        channel: Annotated[int, Field(description="Channel number (1-4)", ge=1, le=4)],
+        bandwidth: Annotated[Optional[BandwidthLimit], Field(description="Bandwidth limit: OFF (full bandwidth) or LIMIT_20M (20MHz limit). Default is OFF")] = None
     ) -> Dict[str, Any]:
         """
-        Set channel bandwidth limit.
+        Set channel bandwidth limit to reduce noise and filter high frequencies.
+        
+        The bandwidth limit attenuates high frequency components in the signal that
+        are greater than the specified limit. This is useful for reducing noise in
+        displayed waveforms while preserving the lower frequency components of interest.
+        
+        The DHO800 series supports:
+        - BandwidthLimit.OFF: Full bandwidth (no limiting)
+        - BandwidthLimit.LIMIT_20M: 20 MHz bandwidth limit
+        
+        Note: Bandwidth limiting not only reduces noise but also attenuates or eliminates
+        the high frequency components of the signal.
         
         Args:
             channel: Channel number (1-4)
-            bandwidth: Bandwidth limit ("OFF", "20M", "100M") or None for OFF
+            bandwidth: Bandwidth limit enum value, None defaults to OFF
             
         Returns:
             Status dictionary with actual bandwidth limit set

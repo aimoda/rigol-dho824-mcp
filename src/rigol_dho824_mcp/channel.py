@@ -1,6 +1,13 @@
 """Channel control functions for Rigol DHO824."""
 
 from typing import Optional, Dict, Any
+from enum import Enum
+
+
+class BandwidthLimit(str, Enum):
+    """Bandwidth limit options for DHO800 series oscilloscopes."""
+    OFF = "OFF"  # Full bandwidth (no limiting)
+    LIMIT_20M = "20M"  # 20 MHz bandwidth limit
 
 
 class ChannelControl:
@@ -94,28 +101,28 @@ class ChannelControl:
         }
     
     @staticmethod
-    def set_channel_bandwidth(instrument, channel: int, bandwidth: Optional[str]) -> Dict[str, Any]:
+    def set_channel_bandwidth(instrument, channel: int, bandwidth: Optional[BandwidthLimit]) -> Dict[str, Any]:
         """
         Set channel bandwidth limit.
+        
+        Setting the bandwidth limit can reduce noise in displayed waveforms by
+        attenuating high frequency components greater than the limit.
         
         Args:
             instrument: PyVISA instrument instance
             channel: Channel number (1-4)
-            bandwidth: Bandwidth limit ("OFF", "20M", "100M") or None for OFF
+            bandwidth: Bandwidth limit enum value, None defaults to OFF
             
         Returns:
             Status dictionary
         """
         if bandwidth is None:
-            bandwidth = "OFF"
+            bandwidth = BandwidthLimit.OFF
         
-        bandwidth = bandwidth.upper()
-        valid_bandwidths = ["OFF", "20M", "100M"]
+        # Use the enum's value for the SCPI command
+        bw_value = bandwidth.value
         
-        if bandwidth not in valid_bandwidths:
-            raise ValueError(f"Invalid bandwidth. Must be one of {valid_bandwidths}")
-        
-        instrument.write(f':CHAN{channel}:BWL {bandwidth}')
+        instrument.write(f':CHAN{channel}:BWL {bw_value}')
         
         # Verify the setting
         actual_bw = instrument.query(f':CHAN{channel}:BWL?').strip()
@@ -123,7 +130,7 @@ class ChannelControl:
         return {
             "channel": f"CH{channel}",
             "bandwidth_limit": actual_bw,
-            "success": actual_bw == bandwidth
+            "success": actual_bw == bw_value
         }
     
     @staticmethod
