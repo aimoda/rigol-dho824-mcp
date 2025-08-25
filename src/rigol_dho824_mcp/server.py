@@ -313,6 +313,7 @@ class WaveformChannelData(TypedDict):
     """Data for a single channel waveform capture."""
     channel: ChannelNumber
     raw_data: Annotated[List[int], Field(description="Raw ADC values (16-bit unsigned integers)")]
+    truncated: Annotated[bool, Field(description="True if any ADC values reached saturation (65535), indicating possible clipping")]
     # Conversion parameters for voltage calculation: voltage = (raw_value - y_origin - y_reference) * y_increment
     y_increment: Annotated[float, Field(description="Vertical increment for raw-to-voltage conversion")]
     y_origin: Annotated[float, Field(description="Vertical origin offset for raw-to-voltage conversion")]
@@ -605,6 +606,8 @@ def create_server() -> FastMCP:
         
         Captures data in RAW mode with WORD format (16-bit) for maximum accuracy.
         Returns raw ADC values along with all parameters needed for voltage conversion.
+        The 'truncated' field indicates if any ADC values reached saturation (65535),
+        which suggests the signal may be clipped and vertical scale adjustment may be needed.
         
         Voltage conversion formula: voltage = (raw_value - y_origin - y_reference) * y_increment
         Time calculation formula: time = sample_index * x_increment + x_origin
@@ -670,9 +673,13 @@ def create_server() -> FastMCP:
                         is_big_endian=False
                     )
                     
+                    # Check for ADC saturation using numpy for efficiency (65535 is max value for 16-bit unsigned)
+                    truncated = bool(np.max(raw_data) == 65535) if raw_data else False
+                    
                     results.append(WaveformChannelData(
                         channel=channel,
                         raw_data=raw_data,  # Return raw ADC values directly
+                        truncated=truncated,  # Indicate if any values hit ADC saturation
                         y_increment=y_increment,
                         y_origin=y_origin,
                         y_reference=y_reference,
