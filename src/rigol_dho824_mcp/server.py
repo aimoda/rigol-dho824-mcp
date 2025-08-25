@@ -17,29 +17,11 @@ import pyvisa
 class BandwidthLimit(str, Enum):
     """Bandwidth limit options for DHO800 series oscilloscopes."""
     OFF = "OFF"  # Full bandwidth (no limiting)
-    LIMIT_20M = "20M"  # 20 MHz bandwidth limit
+    MHZ_20 = "20MHz"  # 20 MHz bandwidth limit (user-friendly)
 
 
-class Channel(int, Enum):
-    CH1 = 1
-    CH2 = 2
-    CH3 = 3
-    CH4 = 4
-    
-    @property
-    def ch_str(self) -> str:
-        """Returns 'CH1', 'CH2', etc. for display/responses"""
-        return f"CH{self.value}"
-    
-    @property
-    def chan_str(self) -> str:
-        """Returns 'CHAN1', 'CHAN2', etc. for SCPI commands"""
-        return f"CHAN{self.value}"
-    
-    @property
-    def channel_str(self) -> str:
-        """Returns 'CHANnel1', etc. for full SCPI format"""
-        return f"CHANnel{self.value}"
+# Channel representation: accept only integers 1-4 for clarity
+ChannelNumber = Annotated[int, Field(ge=1, le=4, description="Channel number (1-4)", examples=[1, 2, 3, 4])]
 
 
 class Coupling(str, Enum):
@@ -51,47 +33,14 @@ class Coupling(str, Enum):
     HF_REJECT = "HFReject"  # Trigger only
 
 
-class ProbeRatio(float, Enum):
-    """Valid probe attenuation ratios."""
-    R0_001 = 0.001
-    R0_002 = 0.002
-    R0_005 = 0.005
-    R0_01 = 0.01
-    R0_02 = 0.02
-    R0_05 = 0.05
-    R0_1 = 0.1
-    R0_2 = 0.2
-    R0_5 = 0.5
-    R1 = 1
-    R2 = 2
-    R5 = 5
-    R10 = 10
-    R20 = 20
-    R50 = 50
-    R100 = 100
-    R200 = 200
-    R500 = 500
-    R1000 = 1000
-    R2000 = 2000
-    R5000 = 5000
-    R10000 = 10000
-    
-    @classmethod
-    def from_float(cls, value: float) -> "ProbeRatio":
-        """Convert a float value to the nearest ProbeRatio enum."""
-        # Try exact match first
-        for ratio in cls:
-            if abs(ratio.value - value) < 0.0001:  # Small tolerance for float comparison
-                return ratio
-        # If no exact match, find the closest
-        return min(cls, key=lambda x: abs(x.value - value))
+# Probe ratio: accept plain numeric value (e.g., 1, 10, 100).
+ProbeRatioField = Annotated[float, Field(description="Probe attenuation ratio (numeric)", examples=[1, 10, 100, 1000])]
 
-# Type aliases for specific coupling uses
-ChannelCoupling = Literal[Coupling.AC, Coupling.DC, Coupling.GND]
-TriggerCouplingType = Literal[Coupling.AC, Coupling.DC, Coupling.LF_REJECT, Coupling.HF_REJECT]
+# Type aliases for specific coupling uses (user-facing string values)
+ChannelCoupling = Literal["AC", "DC", "GND"]
+TriggerCouplingType = Literal["AC", "DC", "LFReject", "HFReject"]
 
 # Common field type aliases for deduplication
-ProbeRatioField = Annotated[ProbeRatio, Field(description="Probe attenuation ratio")]
 VerticalScaleField = Annotated[float, Field(description="Vertical scale in V/div")]
 VerticalOffsetField = Annotated[float, Field(description="Vertical offset in volts")]
 TimeOffsetField = Annotated[float, Field(description="Time offset in seconds")]
@@ -142,10 +91,10 @@ class TriggerMode(str, Enum):
 
 
 class TriggerSlope(str, Enum):
-    """Trigger edge slopes."""
-    POSITIVE = "POS"  # Rising edge
-    NEGATIVE = "NEG"  # Falling edge  
-    RFAL = "RFAL"  # Either edge (rising or falling)
+    """Trigger edge slopes (user-facing)."""
+    POSITIVE = "POSITIVE"  # Rising edge
+    NEGATIVE = "NEGATIVE"  # Falling edge
+    EITHER = "EITHER"      # Either edge (rising or falling)
 
 
 class AcquisitionAction(str, Enum):
@@ -233,35 +182,35 @@ class SerialNumberResult(TypedDict):
 # Channel results
 class ChannelEnableResult(TypedDict):
     """Result for channel enable/disable operations."""
-    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    channel: ChannelNumber
     enabled: Annotated[bool, Field(description="Whether the channel is enabled")]
 
 
 class ChannelCouplingResult(TypedDict):
     """Result for channel coupling settings."""
-    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
-    coupling: Annotated[Coupling, Field(description="Coupling mode")]
+    channel: ChannelNumber
+    coupling: Annotated[ChannelCoupling, Field(description="Coupling mode")]
 
 
 class ChannelProbeResult(TypedDict):
     """Result for channel probe settings."""
-    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    channel: ChannelNumber
     probe_ratio: ProbeRatioField
 
 
 class ChannelBandwidthResult(TypedDict):
     """Result for channel bandwidth settings."""
-    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
-    bandwidth_limit: Annotated[BandwidthLimit, Field(description="Bandwidth limit setting")]
+    channel: ChannelNumber
+    bandwidth_limit: Annotated[Literal["OFF", "20MHz"], Field(description="Bandwidth limit setting")]
 
 
 class ChannelStatusResult(TypedDict):
     """Comprehensive channel status."""
-    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    channel: ChannelNumber
     enabled: Annotated[bool, Field(description="Whether channel is enabled")]
-    coupling: Annotated[Coupling, Field(description="Coupling mode")]
+    coupling: Annotated[ChannelCoupling, Field(description="Coupling mode")]
     probe_ratio: ProbeRatioField
-    bandwidth_limit: Annotated[BandwidthLimit, Field(description="Bandwidth limit")]
+    bandwidth_limit: Annotated[Literal["OFF", "20MHz"], Field(description="Bandwidth limit")]
     vertical_scale: VerticalScaleField
     vertical_offset: VerticalOffsetField
     invert: Annotated[bool, Field(description="Whether channel is inverted")]
@@ -270,14 +219,14 @@ class ChannelStatusResult(TypedDict):
 
 class VerticalScaleResult(TypedDict):
     """Result for vertical scale settings."""
-    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    channel: ChannelNumber
     vertical_scale: VerticalScaleField
     units: GenericUnitsField
 
 
 class VerticalOffsetResult(TypedDict):
     """Result for vertical offset settings."""
-    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    channel: ChannelNumber
     vertical_offset: VerticalOffsetField
     units: GenericUnitsField
 
@@ -285,13 +234,13 @@ class VerticalOffsetResult(TypedDict):
 # Timebase results
 class TimebaseScaleResult(TypedDict):
     """Result for timebase scale settings."""
-    timebase_scale: Annotated[float, Field(description="Time per division in seconds")]
-    timebase_scale_str: HumanReadableTimeField
+    time_per_div: Annotated[float, Field(description="Time per division in seconds")]
+    time_per_div_str: HumanReadableTimeField
 
 
 class TimebaseOffsetResult(TypedDict):
     """Result for timebase offset settings."""
-    timebase_offset: TimeOffsetField
+    time_offset: TimeOffsetField
     units: TimeUnitsField
 
 
@@ -323,13 +272,13 @@ class SampleRateResult(TypedDict):
 # Trigger results
 class TriggerStatusResult(TypedDict):
     """Current trigger status information."""
-    status: Annotated[TriggerStatus, Field(description="Trigger status")]
-    raw_status: Annotated[str, Field(description="Raw status from scope")]
-    mode: Annotated[str, Field(description="Current trigger mode")]
+    trigger_status: Annotated[TriggerStatus, Field(description="Trigger status")]
+    raw_trigger_status: Annotated[str, Field(description="Raw status from scope")]
+    trigger_mode: Annotated[TriggerMode, Field(description="Current trigger mode")]
     # Optional edge trigger fields
-    source: Annotated[Optional[str], Field(description="Trigger source for edge trigger")]
-    level: Annotated[Optional[float], Field(description="Trigger level for edge trigger")]
-    slope: Annotated[Optional[str], Field(description="Trigger slope for edge trigger")]
+    channel: Annotated[Optional[ChannelNumber], Field(description="Trigger source channel (1-4)")]
+    trigger_level: Annotated[Optional[float], Field(description="Trigger level (volts) for edge trigger")]
+    trigger_slope: Annotated[Optional[TriggerSlope], Field(description="Trigger slope for edge trigger")]
 
 
 class TriggerModeResult(TypedDict):
@@ -339,7 +288,7 @@ class TriggerModeResult(TypedDict):
 
 class TriggerSourceResult(TypedDict):
     """Result for trigger source settings."""
-    trigger_source: Annotated[Channel, Field(description="Trigger source channel")]
+    channel: ChannelNumber
 
 
 class TriggerLevelResult(TypedDict):
@@ -350,7 +299,7 @@ class TriggerLevelResult(TypedDict):
 
 class TriggerSlopeResult(TypedDict):
     """Result for trigger slope settings."""
-    trigger_slope: Annotated[TriggerSlope, Field(description="Trigger slope (POSITIVE, NEGATIVE, or RFAL)")]
+    trigger_slope: Annotated[TriggerSlope, Field(description="Trigger slope (POSITIVE, NEGATIVE, or EITHER)")]
 
 
 # Action results
@@ -362,7 +311,7 @@ class ActionResult(TypedDict):
 # Waveform data
 class WaveformChannelData(TypedDict):
     """Data for a single channel waveform capture."""
-    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    channel: ChannelNumber
     data: Annotated[List[float], Field(description="Voltage values in specified units")]
     time: Annotated[List[float], Field(description="Time values in seconds")]
     units: VoltageUnitsField
@@ -403,6 +352,19 @@ class RigolDHO824:
         Returns:
             True if connection successful, False otherwise
         """
+        # If already connected, test if connection is still alive
+        if self.instrument is not None:
+            try:
+                # Test if connection is still alive with a simple query
+                self.instrument.query('*OPC?')
+                # self.instrument.write('*OPC')
+                return True
+            except:
+                # Connection is dead, proceed to reconnect
+                print("Connection dead")
+                self.disconnect()
+        
+        print("Opening up new connection")
         try:
             if self.resource_string:
                 # Use provided resource string
@@ -419,9 +381,20 @@ class RigolDHO824:
                 self.instrument = self.rm.open_resource(rigol_resources[0])
                 
             self.instrument.timeout = self.timeout
+
+            # Set proper termination characters for SCPI communication
+            self.instrument.read_termination = '\n'
+            self.instrument.write_termination = '\n'
+
+            # Clear the instrument's input and output buffers
+            # self.instrument.clear()
+
+            # Ensure synchronization - wait for all operations to complete
+            self.instrument.write('*OPC')
             
             # Test connection and cache identity
             self._identity = self.instrument.query('*IDN?').strip()
+            
             return True
             
         except Exception:
@@ -507,26 +480,21 @@ def create_server() -> FastMCP:
         return status_map.get(raw_status, TriggerStatus.STOPPED)
     
     def map_trigger_slope_response(raw_slope: str) -> TriggerSlope:
-        """Map SCPI slope response to TriggerSlope enum."""
+        """Map SCPI slope response to user-facing TriggerSlope values."""
         slope_map = {
             "POS": TriggerSlope.POSITIVE,
             "NEG": TriggerSlope.NEGATIVE,
-            "RFAL": TriggerSlope.RFAL,
-            "EITH": TriggerSlope.RFAL  # Map EITHER to RFAL
+            "RFAL": TriggerSlope.EITHER,
+            "EITH": TriggerSlope.EITHER,  # Some firmware replies with EITH
         }
         return slope_map.get(raw_slope, TriggerSlope.POSITIVE)  # Default to POSITIVE
     
-    def map_coupling_mode(raw_coupling: str) -> Coupling:
-        """Map raw coupling mode to enum."""
+    def map_coupling_mode(raw_coupling: str) -> str:
+        """Map raw coupling mode to user-facing string (AC/DC/GND)."""
         coupling = raw_coupling.upper()
         if coupling in ["AC", "DC", "GND"]:
-            return Coupling(coupling)
-        # Handle abbreviated forms
-        if coupling == "AC":
-            return Coupling.AC
-        elif coupling == "DC":
-            return Coupling.DC
-        return Coupling.GND
+            return coupling
+        return "GND"
     
     def map_acquisition_type(raw_type: str) -> AcquisitionType:
         """Map raw acquisition type to enum."""
@@ -537,6 +505,13 @@ def create_server() -> FastMCP:
             "ULTR": AcquisitionType.ULTRA
         }
         return type_map.get(raw_type, AcquisitionType.NORMAL)
+
+    def map_trigger_mode(raw_mode: str) -> TriggerMode:
+        """Map SCPI trigger mode response to TriggerMode enum."""
+        for tm in TriggerMode:
+            if raw_mode == tm.value or raw_mode == tm.value[:4].upper():
+                return tm
+        return TriggerMode.EDGE
     
     # === IDENTITY TOOLS ===
     
@@ -619,7 +594,7 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def capture_waveform(
-        channels: Annotated[List[Channel], Field(description="List of channels to capture (CH1-CH4)")] = [Channel.CH1]
+        channels: Annotated[List[ChannelNumber], Field(description="List of channels to capture (1-4)", examples=[[1], [1, 2]])] = [1]
     ) -> List[WaveformChannelData]:
         """
         Capture waveform data from specified channels.
@@ -646,13 +621,13 @@ def create_server() -> FastMCP:
             
             for channel in channels:
                 # Check if channel is enabled
-                channel_enabled = int(scope.instrument.query(f':CHAN{channel.value}:DISP?'))
+                channel_enabled = int(scope.instrument.query(f':CHAN{channel}:DISP?'))
                 if not channel_enabled:
                     continue
                     
                 try:
                     # Set source channel
-                    scope.instrument.write(f':WAV:SOUR {channel.chan_str}')
+                    scope.instrument.write(f':WAV:SOUR CHAN{channel}')
                     
                     # Configure for RAW mode with WORD format (16-bit)
                     scope.instrument.write(':WAV:MODE RAW')
@@ -674,9 +649,9 @@ def create_server() -> FastMCP:
                     x_origin = float(scope.instrument.query(':WAV:XOR?'))
                     
                     # Query channel settings
-                    vertical_scale = float(scope.instrument.query(f':CHAN{channel.value}:SCAL?'))
-                    vertical_offset = float(scope.instrument.query(f':CHAN{channel.value}:OFFS?'))
-                    probe_ratio = ProbeRatio.from_float(float(scope.instrument.query(f':CHAN{channel.value}:PROB?')))
+                    vertical_scale = float(scope.instrument.query(f':CHAN{channel}:SCAL?'))
+                    vertical_offset = float(scope.instrument.query(f':CHAN{channel}:OFFS?'))
+                    probe_ratio = float(scope.instrument.query(f':CHAN{channel}:PROB?'))
                     
                     # Query sample rate
                     sample_rate = float(scope.instrument.query(':ACQ:SRAT?'))
@@ -752,15 +727,15 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_channel_enable(
-        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
-        enable: Annotated[bool, Field(description="True to enable, False to disable")]
+        channel: ChannelNumber,
+        enabled: Annotated[bool, Field(description="True to enable, False to disable")]
     ) -> ChannelEnableResult:
         """
         Enable or disable a channel display.
         
         Args:
             channel: Channel number (1-4)
-            enable: True to enable, False to disable
+            enabled: True to enable, False to disable
             
         Returns:
             Channel enable status
@@ -769,11 +744,11 @@ def create_server() -> FastMCP:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            state = "ON" if enable else "OFF"
-            scope.instrument.write(f':CHAN{channel.value}:DISP {state}')
+            state = "ON" if enabled else "OFF"
+            scope.instrument.write(f':CHAN{channel}:DISP {state}')
             
             # Verify the setting
-            actual_state = int(scope.instrument.query(f':CHAN{channel.value}:DISP?'))
+            actual_state = int(scope.instrument.query(f':CHAN{channel}:DISP?'))
             
             return ChannelEnableResult(
                 channel=channel,
@@ -787,14 +762,14 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_channel_coupling(
-        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
+        channel: ChannelNumber,
         coupling: Annotated[ChannelCoupling, Field(description="Coupling mode: AC, DC, or GND")]
     ) -> ChannelCouplingResult:
         """
         Set channel coupling mode.
         
         Args:
-            channel: Channel number (CH1-CH4)
+            channel: Channel number (1-4)
             coupling: Coupling mode (AC, DC, or GND)
             
         Returns:
@@ -805,10 +780,10 @@ def create_server() -> FastMCP:
                 raise Exception("Failed to connect to oscilloscope")
             
             # Use enum value directly
-            scope.instrument.write(f':CHAN{channel.value}:COUP {coupling.value}')
+            scope.instrument.write(f':CHAN{channel}:COUP {coupling}')
             
             # Verify the setting
-            actual_coupling = scope.instrument.query(f':CHAN{channel.value}:COUP?').strip()
+            actual_coupling = scope.instrument.query(f':CHAN{channel}:COUP?').strip()
             
             return ChannelCouplingResult(
                 channel=channel,
@@ -822,15 +797,15 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_channel_probe(
-        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
-        ratio: Annotated[ProbeRatio, Field(description="Probe attenuation ratio")]
+        channel: ChannelNumber,
+        probe_ratio: ProbeRatioField
     ) -> ChannelProbeResult:
         """
         Set channel probe attenuation ratio.
         
         Args:
             channel: Channel number (1-4)
-            ratio: Probe ratio (e.g., 1, 10, 100, 1000)
+            probe_ratio: Probe ratio (e.g., 1, 10, 100, 1000)
             
         Returns:
             Channel probe setting
@@ -840,15 +815,15 @@ def create_server() -> FastMCP:
                 raise Exception("Failed to connect to oscilloscope")
             
             # Format as integer if it's a whole number, otherwise as float
-            probe_value = int(ratio.value) if ratio.value.is_integer() else ratio.value
-            scope.instrument.write(f':CHAN{channel.value}:PROB {probe_value}')
+            probe_value = int(probe_ratio) if float(probe_ratio).is_integer() else float(probe_ratio)
+            scope.instrument.write(f':CHAN{channel}:PROB {probe_value}')
             
             # Verify the setting
-            actual_ratio = float(scope.instrument.query(f':CHAN{channel.value}:PROB?'))
+            actual_ratio = float(scope.instrument.query(f':CHAN{channel}:PROB?'))
             
             return ChannelProbeResult(
                 channel=channel,
-                probe_ratio=ProbeRatio.from_float(actual_ratio)
+                probe_ratio=actual_ratio
             )
             
         except Exception as e:
@@ -858,8 +833,8 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_channel_bandwidth(
-        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
-        bandwidth: Annotated[Optional[BandwidthLimit], Field(description="Bandwidth limit: OFF (full bandwidth) or LIMIT_20M (20MHz limit). Default is OFF")] = None
+        channel: ChannelNumber,
+        bandwidth_limit: Annotated[Optional[Literal["OFF", "20MHz"]], Field(description="Bandwidth limit: OFF or 20MHz. Default is OFF")] = None
     ) -> ChannelBandwidthResult:
         """
         Set channel bandwidth limit to reduce noise and filter high frequencies.
@@ -869,15 +844,15 @@ def create_server() -> FastMCP:
         displayed waveforms while preserving the lower frequency components of interest.
         
         The DHO800 series supports:
-        - BandwidthLimit.OFF: Full bandwidth (no limiting)
-        - BandwidthLimit.LIMIT_20M: 20 MHz bandwidth limit
+        - OFF: Full bandwidth (no limiting)
+        - 20MHz: 20 MHz bandwidth limit
         
         Note: Bandwidth limiting not only reduces noise but also attenuates or eliminates
         the high frequency components of the signal.
         
         Args:
             channel: Channel number (1-4)
-            bandwidth: Bandwidth limit enum value, None defaults to OFF
+            bandwidth_limit: Bandwidth limit setting (OFF or 20MHz). Defaults to OFF
             
         Returns:
             Channel bandwidth setting
@@ -886,22 +861,18 @@ def create_server() -> FastMCP:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            if bandwidth is None:
-                bandwidth = BandwidthLimit.OFF
+            if bandwidth_limit is None:
+                bandwidth_limit = "OFF"
             
-            # Use the enum's value for the SCPI command
-            bw_value = bandwidth.value
-            
-            scope.instrument.write(f':CHAN{channel.value}:BWL {bw_value}')
+            # Map user-friendly value to SCPI
+            bw_value = "20M" if bandwidth_limit == "20MHz" else "OFF"
+            scope.instrument.write(f':CHAN{channel}:BWL {bw_value}')
             
             # Verify the setting
-            actual_bw = scope.instrument.query(f':CHAN{channel.value}:BWL?').strip()
+            actual_bw = scope.instrument.query(f':CHAN{channel}:BWL?').strip()
             
             # Map response to enum
-            if actual_bw == "20M":
-                result_bw = BandwidthLimit.LIMIT_20M
-            else:
-                result_bw = BandwidthLimit.OFF
+            result_bw = "20MHz" if actual_bw == "20M" else "OFF"
             
             return ChannelBandwidthResult(
                 channel=channel,
@@ -915,7 +886,7 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def get_channel_status(
-        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")]
+        channel: ChannelNumber
     ) -> ChannelStatusResult:
         """
         Get comprehensive channel status and settings.
@@ -931,20 +902,17 @@ def create_server() -> FastMCP:
                 raise Exception("Failed to connect to oscilloscope")
             
             # Query all channel settings
-            enabled = bool(int(scope.instrument.query(f':CHAN{channel.value}:DISP?')))
-            coupling = scope.instrument.query(f':CHAN{channel.value}:COUP?').strip()
-            probe_ratio = ProbeRatio.from_float(float(scope.instrument.query(f':CHAN{channel.value}:PROB?')))
-            bw_limit = scope.instrument.query(f':CHAN{channel.value}:BWL?').strip()
-            vertical_scale = float(scope.instrument.query(f':CHAN{channel.value}:SCAL?'))
-            vertical_offset = float(scope.instrument.query(f':CHAN{channel.value}:OFFS?'))
-            invert = bool(int(scope.instrument.query(f':CHAN{channel.value}:INV?')))
-            units = scope.instrument.query(f':CHAN{channel.value}:UNIT?').strip()
+            enabled = bool(int(scope.instrument.query(f':CHAN{channel}:DISP?')))
+            coupling = scope.instrument.query(f':CHAN{channel}:COUP?').strip()
+            probe_ratio = float(scope.instrument.query(f':CHAN{channel}:PROB?'))
+            bw_limit = scope.instrument.query(f':CHAN{channel}:BWL?').strip()
+            vertical_scale = float(scope.instrument.query(f':CHAN{channel}:SCAL?'))
+            vertical_offset = float(scope.instrument.query(f':CHAN{channel}:OFFS?'))
+            invert = bool(int(scope.instrument.query(f':CHAN{channel}:INV?')))
+            units = scope.instrument.query(f':CHAN{channel}:UNIT?').strip()
             
             # Map bandwidth limit
-            if bw_limit == "20M":
-                bandwidth_limit = BandwidthLimit.LIMIT_20M
-            else:
-                bandwidth_limit = BandwidthLimit.OFF
+            bandwidth_limit = "20MHz" if bw_limit == "20M" else "OFF"
             
             return ChannelStatusResult(
                 channel=channel,
@@ -967,15 +935,15 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_vertical_scale(
-        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
-        scale: VerticalScaleField
+        channel: ChannelNumber,
+        vertical_scale: VerticalScaleField
     ) -> VerticalScaleResult:
         """
         Set channel vertical scale (V/div).
         
         Args:
             channel: Channel number (1-4)
-            scale: Vertical scale in V/div
+            vertical_scale: Vertical scale in V/div
             
         Returns:
             Vertical scale setting
@@ -995,13 +963,14 @@ def create_server() -> FastMCP:
             ]
             
             # Find closest valid scale
+            scale = vertical_scale
             if scale not in valid_scales:
                 scale = valid_scales[np.argmin(np.abs(np.array(valid_scales) - scale))]
             
-            scope.instrument.write(f':CHAN{channel.value}:SCAL {scale}')
+            scope.instrument.write(f':CHAN{channel}:SCAL {scale}')
             
             # Verify the setting
-            actual_scale = float(scope.instrument.query(f':CHAN{channel.value}:SCAL?'))
+            actual_scale = float(scope.instrument.query(f':CHAN{channel}:SCAL?'))
             
             return VerticalScaleResult(
                 channel=channel,
@@ -1016,15 +985,15 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_vertical_offset(
-        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
-        offset: VerticalOffsetField
+        channel: ChannelNumber,
+        vertical_offset: VerticalOffsetField
     ) -> VerticalOffsetResult:
         """
         Set channel vertical offset.
         
         Args:
             channel: Channel number (1-4)
-            offset: Vertical offset in volts
+            vertical_offset: Vertical offset in volts
             
         Returns:
             Vertical offset setting
@@ -1033,10 +1002,10 @@ def create_server() -> FastMCP:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            scope.instrument.write(f':CHAN{channel.value}:OFFS {offset}')
+            scope.instrument.write(f':CHAN{channel}:OFFS {vertical_offset}')
             
             # Verify the setting
-            actual_offset = float(scope.instrument.query(f':CHAN{channel.value}:OFFS?'))
+            actual_offset = float(scope.instrument.query(f':CHAN{channel}:OFFS?'))
             
             return VerticalOffsetResult(
                 channel=channel,
@@ -1051,13 +1020,13 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_timebase_scale(
-        scale: Annotated[float, Field(description="Time per division in seconds")]
+        time_per_div: Annotated[float, Field(description="Time per division in seconds")]
     ) -> TimebaseScaleResult:
         """
         Set horizontal timebase scale.
         
         Args:
-            scale: Time per division in seconds
+            time_per_div: Time per division in seconds
             
         Returns:
             Timebase scale setting
@@ -1066,7 +1035,7 @@ def create_server() -> FastMCP:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            scope.instrument.write(f':TIM:MAIN:SCAL {scale}')
+            scope.instrument.write(f':TIM:MAIN:SCAL {time_per_div}')
             
             # Verify the setting
             actual_scale = float(scope.instrument.query(':TIM:MAIN:SCAL?'))
@@ -1082,8 +1051,8 @@ def create_server() -> FastMCP:
                 scale_str = f"{actual_scale*1e9:.2f} ns/div"
             
             return TimebaseScaleResult(
-                timebase_scale=actual_scale,
-                timebase_scale_str=scale_str
+                time_per_div=actual_scale,
+                time_per_div_str=scale_str
             )
             
         except Exception as e:
@@ -1093,13 +1062,13 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_timebase_offset(
-        offset: TimeOffsetField
+        time_offset: TimeOffsetField
     ) -> TimebaseOffsetResult:
         """
         Set horizontal timebase offset.
         
         Args:
-            offset: Time offset in seconds
+            time_offset: Time offset in seconds
             
         Returns:
             Timebase offset setting
@@ -1108,13 +1077,13 @@ def create_server() -> FastMCP:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            scope.instrument.write(f':TIM:MAIN:OFFS {offset}')
+            scope.instrument.write(f':TIM:MAIN:OFFS {time_offset}')
             
             # Verify the setting
             actual_offset = float(scope.instrument.query(':TIM:MAIN:OFFS?'))
             
             return TimebaseOffsetResult(
-                timebase_offset=actual_offset,
+                time_offset=actual_offset,
                 units="s"
             )
             
@@ -1257,20 +1226,23 @@ def create_server() -> FastMCP:
             mode = scope.instrument.query(':TRIG:MODE?').strip()
             
             result: TriggerStatusResult = {
-                "status": map_trigger_status(status),
-                "raw_status": status,
-                "mode": mode,
-                "source": None,
-                "level": None,
-                "slope": None
+                "trigger_status": map_trigger_status(status),
+                "raw_trigger_status": status,
+                "trigger_mode": map_trigger_mode(mode),
+                "channel": None,
+                "trigger_level": None,
+                "trigger_slope": None,
             }
             
             # If edge trigger, get edge-specific settings
             if mode in ["EDGE", "EDG"]:
-                result["source"] = scope.instrument.query(':TRIG:EDGE:SOUR?').strip()
-                result["level"] = float(scope.instrument.query(':TRIG:EDGE:LEV?'))
+                actual_source = scope.instrument.query(':TRIG:EDGE:SOUR?').strip()
+                if actual_source.startswith("CHAN") or actual_source.startswith("CH"):
+                    # Last character is channel number
+                    result["channel"] = int(actual_source[-1])
+                result["trigger_level"] = float(scope.instrument.query(':TRIG:EDGE:LEV?'))
                 raw_slope = scope.instrument.query(':TRIG:EDGE:SLOP?').strip()
-                result["slope"] = map_trigger_slope_response(raw_slope)
+                result["trigger_slope"] = map_trigger_slope_response(raw_slope)
             
             return result
             
@@ -1283,13 +1255,13 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_trigger_mode(
-        mode: Annotated[TriggerMode, Field(description="Trigger mode")]
+        trigger_mode: Annotated[TriggerMode, Field(description="Trigger mode")]
     ) -> TriggerModeResult:
         """
         Set trigger mode.
         
         Args:
-            mode: Trigger mode
+            trigger_mode: Trigger mode
             
         Returns:
             Trigger mode setting
@@ -1298,15 +1270,15 @@ def create_server() -> FastMCP:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            scope.instrument.write(f':TRIG:MODE {mode.value}')
+            scope.instrument.write(f':TRIG:MODE {trigger_mode.value}')
             
             # Verify the setting
             actual_mode = scope.instrument.query(':TRIG:MODE?').strip()
             
             # Map to enum - handle abbreviated responses
-            for trigger_mode in TriggerMode:
-                if actual_mode == trigger_mode.value or actual_mode == trigger_mode.value[:4]:
-                    return TriggerModeResult(trigger_mode=trigger_mode)
+            for tm in TriggerMode:
+                if actual_mode == tm.value or actual_mode == tm.value[:4]:
+                    return TriggerModeResult(trigger_mode=tm)
             
             # Default to EDGE if unknown
             return TriggerModeResult(trigger_mode=TriggerMode.EDGE)
@@ -1318,13 +1290,13 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_trigger_source(
-        source: Annotated[Channel, Field(description="Trigger source: CH1, CH2, CH3, or CH4")]
+        channel: ChannelNumber
     ) -> TriggerSourceResult:
         """
         Set trigger source for edge trigger.
         
         Args:
-            source: Trigger source (CH1, CH2, CH3, or CH4)
+            channel: Trigger source channel (1-4)
             
         Returns:
             Trigger source setting
@@ -1339,28 +1311,18 @@ def create_server() -> FastMCP:
                 scope.instrument.write(':TRIG:MODE EDGE')
             
             # Use the channel's SCPI format
-            scope.instrument.write(f':TRIG:EDGE:SOUR {source.chan_str}')
+            scope.instrument.write(f':TRIG:EDGE:SOUR CHAN{channel}')
             
             # Verify the setting
             actual_source = scope.instrument.query(':TRIG:EDGE:SOUR?').strip()
             
-            # Map back to Channel enum
-            if actual_source.startswith("CHAN"):
+            # Map back to channel number
+            if actual_source.startswith("CHAN") or actual_source.startswith("CH"):
                 channel_num = int(actual_source[-1])
-                # Get the Channel enum by its value
-                result_source = Channel(channel_num)
             else:
-                # If not CHAN format, try to parse as CH format
-                if actual_source.startswith("CH"):
-                    channel_num = int(actual_source[-1])
-                    result_source = Channel(channel_num)
-                else:
-                    # Default to CH1 if unrecognized
-                    result_source = Channel.CH1
+                channel_num = 1
             
-            return TriggerSourceResult(
-                trigger_source=result_source
-            )
+            return TriggerSourceResult(channel=channel_num)
             
         except Exception as e:
             raise Exception(f"Error setting trigger source: {str(e)}") from e
@@ -1369,15 +1331,15 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_trigger_level(
-        level: Annotated[float, Field(description="Trigger level in volts")],
-        source: Annotated[Optional[Channel], Field(description="Optional trigger source")] = None
+        trigger_level: Annotated[float, Field(description="Trigger level in volts")],
+        channel: Annotated[Optional[ChannelNumber], Field(description="Optional trigger source channel (1-4)")] = None
     ) -> TriggerLevelResult:
         """
         Set trigger level voltage.
         
         Args:
-            level: Trigger level in volts
-            source: Optional source to set level for (defaults to current source)
+            trigger_level: Trigger level in volts
+            channel: Optional channel to set level for (defaults to current source)
             
         Returns:
             Trigger level setting
@@ -1387,24 +1349,21 @@ def create_server() -> FastMCP:
                 raise Exception("Failed to connect to oscilloscope")
             
             # If source specified, set it first
-            if source:
+            if channel:
                 # Ensure we're in edge trigger mode
                 current_mode = scope.instrument.query(':TRIG:MODE?').strip()
                 if current_mode not in ["EDGE", "EDG"]:
                     scope.instrument.write(':TRIG:MODE EDGE')
                 
                 # Set the source
-                scope.instrument.write(f':TRIG:EDGE:SOUR {source.chan_str}')
+                scope.instrument.write(f':TRIG:EDGE:SOUR CHAN{channel}')
             
-            scope.instrument.write(f':TRIG:EDGE:LEV {level}')
+            scope.instrument.write(f':TRIG:EDGE:LEV {trigger_level}')
             
             # Verify the setting
             actual_level = float(scope.instrument.query(':TRIG:EDGE:LEV?'))
             
-            return TriggerLevelResult(
-                trigger_level=actual_level,
-                units="V"
-            )
+            return TriggerLevelResult(trigger_level=actual_level, units="V")
             
         except Exception as e:
             raise Exception(f"Error setting trigger level: {str(e)}") from e
@@ -1413,13 +1372,13 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_trigger_slope(
-        slope: Annotated[TriggerSlope, Field(description="Edge slope: POSITIVE, NEGATIVE, or RFAL")]
+        trigger_slope: Annotated[TriggerSlope, Field(description="Edge slope: POSITIVE, NEGATIVE, or EITHER")]
     ) -> TriggerSlopeResult:
         """
         Set trigger edge slope.
         
         Args:
-            slope: Edge slope (POSITIVE, NEGATIVE, or RFAL)
+            trigger_slope: Edge slope (POSITIVE, NEGATIVE, or EITHER)
             
         Returns:
             Trigger slope setting
@@ -1428,8 +1387,13 @@ def create_server() -> FastMCP:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            # Use enum value directly (already in SCPI format)
-            scope.instrument.write(f':TRIG:EDGE:SLOP {slope.value}')
+            # Map user-facing slope to SCPI value
+            slope_map = {
+                TriggerSlope.POSITIVE: "POS",
+                TriggerSlope.NEGATIVE: "NEG",
+                TriggerSlope.EITHER: "RFAL",
+            }
+            scope.instrument.write(f':TRIG:EDGE:SLOP {slope_map[trigger_slope]}')
             
             # Verify the setting
             actual_slope = scope.instrument.query(':TRIG:EDGE:SLOP?').strip()
@@ -1437,9 +1401,7 @@ def create_server() -> FastMCP:
             # Map back to friendly names
             result_slope = map_trigger_slope_response(actual_slope)
             
-            return TriggerSlopeResult(
-                trigger_slope=result_slope
-            )
+            return TriggerSlopeResult(trigger_slope=result_slope)
             
         except Exception as e:
             raise Exception(f"Error setting trigger slope: {str(e)}") from e
@@ -1450,13 +1412,13 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_memory_depth(
-        depth: Annotated[MemoryDepth, Field(description="Memory depth setting")]
+        memory_depth: Annotated[MemoryDepth, Field(description="Memory depth setting")]
     ) -> MemoryDepthResult:
         """
         Set acquisition memory depth.
         
         Args:
-            depth: Memory depth
+            memory_depth: Memory depth
             
         Returns:
             Memory depth setting
@@ -1465,7 +1427,7 @@ def create_server() -> FastMCP:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            scope.instrument.write(f':ACQ:MDEP {depth.value}')
+            scope.instrument.write(f':ACQ:MDEP {memory_depth.value}')
             
             # Verify the setting
             actual_depth = float(scope.instrument.query(':ACQ:MDEP?'))
@@ -1490,13 +1452,13 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_acquisition_type(
-        acq_type: Annotated[AcquisitionType, Field(description="Acquisition type")]
+        acquisition_type: Annotated[AcquisitionType, Field(description="Acquisition type")]
     ) -> AcquisitionTypeResult:
         """
         Set acquisition type.
         
         Args:
-            acq_type: Acquisition type
+            acquisition_type: Acquisition type
             
         Returns:
             Acquisition type setting
@@ -1513,7 +1475,7 @@ def create_server() -> FastMCP:
                 AcquisitionType.ULTRA: "ULTRa"
             }
             
-            scpi_type = type_map[acq_type]
+            scpi_type = type_map[acquisition_type]
             scope.instrument.write(f':ACQ:TYPE {scpi_type}')
             
             # Verify the setting
