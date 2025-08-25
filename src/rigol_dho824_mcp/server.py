@@ -2,7 +2,6 @@
 
 import os
 import time
-from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, TypedDict, Annotated, List, Literal
 import numpy as np
@@ -328,7 +327,6 @@ class WaveformChannelData(TypedDict):
     # Acquisition info
     sample_rate: Annotated[float, Field(description="Sample rate in Sa/s")]
     points: Annotated[int, Field(description="Number of data points")]
-    timestamp: Annotated[str, Field(description="ISO format timestamp")]
 
 
 # === OSCILLOSCOPE CONNECTION CLASS ===
@@ -690,8 +688,7 @@ def create_server() -> FastMCP:
                         vertical_offset=vertical_offset,
                         probe_ratio=probe_ratio,
                         sample_rate=sample_rate,
-                        points=len(raw_data),
-                        timestamp=datetime.now(timezone.utc).isoformat()
+                        points=len(raw_data)
                     ))
                 except Exception as e:
                     # Skip channels with errors
