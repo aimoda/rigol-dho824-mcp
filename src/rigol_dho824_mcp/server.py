@@ -4,7 +4,7 @@ import os
 import time
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, TypedDict, Annotated, List, Dict, Any, Literal
+from typing import Optional, TypedDict, Annotated, List, Literal
 import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP
@@ -312,18 +312,22 @@ class ActionResult(TypedDict):
 class WaveformChannelData(TypedDict):
     """Data for a single channel waveform capture."""
     channel: ChannelNumber
-    data: Annotated[List[float], Field(description="Voltage values in specified units")]
-    time: Annotated[List[float], Field(description="Time values in seconds")]
-    units: VoltageUnitsField
-    sample_rate: Annotated[float, Field(description="Sample rate in Sa/s")]
-    time_increment: Annotated[float, Field(description="Time increment between samples")]
-    time_offset: TimeOffsetField
+    raw_data: Annotated[List[int], Field(description="Raw ADC values (16-bit unsigned integers)")]
+    # Conversion parameters for voltage calculation: voltage = (raw_value - y_origin - y_reference) * y_increment
+    y_increment: Annotated[float, Field(description="Vertical increment for raw-to-voltage conversion")]
+    y_origin: Annotated[float, Field(description="Vertical origin offset for raw-to-voltage conversion")]
+    y_reference: Annotated[float, Field(description="Vertical reference offset for raw-to-voltage conversion")]
+    # Time calculation parameters: time = sample_index * x_increment + x_origin
+    x_increment: Annotated[float, Field(description="Time increment between samples (seconds)")]
+    x_origin: Annotated[float, Field(description="Time origin offset (seconds)")]
+    # Channel settings
     vertical_scale: VerticalScaleField
     vertical_offset: VerticalOffsetField
     probe_ratio: ProbeRatioField
+    # Acquisition info
+    sample_rate: Annotated[float, Field(description="Sample rate in Sa/s")]
     points: Annotated[int, Field(description="Number of data points")]
     timestamp: Annotated[str, Field(description="ISO format timestamp")]
-    statistics: Annotated[Dict[str, float], Field(description="Waveform statistics")]
 
 
 # === OSCILLOSCOPE CONNECTION CLASS ===
@@ -597,16 +601,19 @@ def create_server() -> FastMCP:
         channels: Annotated[List[ChannelNumber], Field(description="List of channels to capture (1-4)", examples=[[1], [1, 2]])] = [1]
     ) -> List[WaveformChannelData]:
         """
-        Capture waveform data from specified channels.
+        Capture raw waveform data from specified channels.
         
         Captures data in RAW mode with WORD format (16-bit) for maximum accuracy.
-        Automatically converts raw values to calibrated voltages with appropriate units.
+        Returns raw ADC values along with all parameters needed for voltage conversion.
+        
+        Voltage conversion formula: voltage = (raw_value - y_origin - y_reference) * y_increment
+        Time calculation formula: time = sample_index * x_increment + x_origin
         
         Args:
             channels: List of channel numbers to capture (1-4), defaults to [1]
             
         Returns:
-            List of waveform data for each channel
+            List of raw waveform data with conversion parameters for each channel
         """
         try:
             if not scope.connect():
@@ -663,54 +670,20 @@ def create_server() -> FastMCP:
                         is_big_endian=False
                     )
                     
-                    # Convert to numpy array
-                    raw_array = np.array(raw_data, dtype=np.float64)
-                    
-                    # Convert raw data to voltage values
-                    # The oscilloscope's y_increment, y_origin, and y_reference already account for probe ratio
-                    voltage_data = (raw_array - y_origin - y_reference) * y_increment
-                    
-                    # Determine appropriate units
-                    max_voltage = np.max(np.abs(voltage_data))
-                    if max_voltage < 1e-6:
-                        units = "nV"
-                        scale_factor = 1e9
-                    elif max_voltage < 1e-3:
-                        units = "μV"
-                        scale_factor = 1e6
-                    elif max_voltage < 1:
-                        units = "mV"
-                        scale_factor = 1e3
-                    else:
-                        units = "V"
-                        scale_factor = 1
-                    
-                    # Scale the data to appropriate units
-                    scaled_data = voltage_data * scale_factor
-                    
-                    # Generate time array
-                    time_points = np.arange(len(voltage_data)) * x_increment + x_origin
-                    
                     results.append(WaveformChannelData(
                         channel=channel,
-                        data=scaled_data.tolist(),
-                        time=time_points.tolist(),
-                        units=units,
-                        sample_rate=sample_rate,
-                        time_increment=x_increment,
-                        time_offset=x_origin,
+                        raw_data=raw_data,  # Return raw ADC values directly
+                        y_increment=y_increment,
+                        y_origin=y_origin,
+                        y_reference=y_reference,
+                        x_increment=x_increment,
+                        x_origin=x_origin,
                         vertical_scale=vertical_scale,
                         vertical_offset=vertical_offset,
                         probe_ratio=probe_ratio,
-                        points=len(voltage_data),
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        statistics={
-                            "min": float(np.min(scaled_data)),
-                            "max": float(np.max(scaled_data)),
-                            "mean": float(np.mean(scaled_data)),
-                            "std": float(np.std(scaled_data)),
-                            "rms": float(np.sqrt(np.mean(scaled_data**2)))
-                        }
+                        sample_rate=sample_rate,
+                        points=len(raw_data),
+                        timestamp=datetime.now(timezone.utc).isoformat()
                     ))
                 except Exception as e:
                     # Skip channels with errors
