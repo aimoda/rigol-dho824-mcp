@@ -1,20 +1,220 @@
-"""MCP server for Rigol DHO824 oscilloscope."""
+"""MCP server for Rigol DHO824 oscilloscope with proper type definitions."""
 
 import os
-from typing import Optional, TypedDict, Annotated, List, Dict, Any
+import time
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Optional, TypedDict, Annotated, List, Dict, Any, Literal
+import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP
 from dotenv import load_dotenv
 import pyvisa
 
-# Import our modules
-from .waveform import WaveformCapture
-from .channel import ChannelControl, BandwidthLimit
-from .trigger import TriggerControl
-from .acquisition import AcquisitionControl
+
+# === ENUMS FOR CONSTRAINED VALUES ===
+
+class BandwidthLimit(str, Enum):
+    """Bandwidth limit options for DHO800 series oscilloscopes."""
+    OFF = "OFF"  # Full bandwidth (no limiting)
+    LIMIT_20M = "20M"  # 20 MHz bandwidth limit
 
 
-# Type definitions for results
+class Channel(int, Enum):
+    CH1 = 1
+    CH2 = 2
+    CH3 = 3
+    CH4 = 4
+    
+    @property
+    def ch_str(self) -> str:
+        """Returns 'CH1', 'CH2', etc. for display/responses"""
+        return f"CH{self.value}"
+    
+    @property
+    def chan_str(self) -> str:
+        """Returns 'CHAN1', 'CHAN2', etc. for SCPI commands"""
+        return f"CHAN{self.value}"
+    
+    @property
+    def channel_str(self) -> str:
+        """Returns 'CHANnel1', etc. for full SCPI format"""
+        return f"CHANnel{self.value}"
+
+
+class Coupling(str, Enum):
+    """All coupling modes for channels and triggers."""
+    AC = "AC"
+    DC = "DC"
+    GND = "GND"
+    LF_REJECT = "LFReject"  # Trigger only
+    HF_REJECT = "HFReject"  # Trigger only
+
+
+class ProbeRatio(float, Enum):
+    """Valid probe attenuation ratios."""
+    R0_001 = 0.001
+    R0_002 = 0.002
+    R0_005 = 0.005
+    R0_01 = 0.01
+    R0_02 = 0.02
+    R0_05 = 0.05
+    R0_1 = 0.1
+    R0_2 = 0.2
+    R0_5 = 0.5
+    R1 = 1
+    R2 = 2
+    R5 = 5
+    R10 = 10
+    R20 = 20
+    R50 = 50
+    R100 = 100
+    R200 = 200
+    R500 = 500
+    R1000 = 1000
+    R2000 = 2000
+    R5000 = 5000
+    R10000 = 10000
+    
+    @classmethod
+    def from_float(cls, value: float) -> "ProbeRatio":
+        """Convert a float value to the nearest ProbeRatio enum."""
+        # Try exact match first
+        for ratio in cls:
+            if abs(ratio.value - value) < 0.0001:  # Small tolerance for float comparison
+                return ratio
+        # If no exact match, find the closest
+        return min(cls, key=lambda x: abs(x.value - value))
+
+# Type aliases for specific coupling uses
+ChannelCoupling = Literal[Coupling.AC, Coupling.DC, Coupling.GND]
+TriggerCouplingType = Literal[Coupling.AC, Coupling.DC, Coupling.LF_REJECT, Coupling.HF_REJECT]
+
+# Common field type aliases for deduplication
+ProbeRatioField = Annotated[ProbeRatio, Field(description="Probe attenuation ratio")]
+VerticalScaleField = Annotated[float, Field(description="Vertical scale in V/div")]
+VerticalOffsetField = Annotated[float, Field(description="Vertical offset in volts")]
+TimeOffsetField = Annotated[float, Field(description="Time offset in seconds")]
+
+# Units field aliases for different contexts
+VoltageUnitsField = Annotated[str, Field(description="Voltage units (V, mV, μV, nV)")]
+TimeUnitsField = Annotated[str, Field(description="Time units (s, ms, μs, ns)")]
+SampleRateUnitsField = Annotated[str, Field(description="Sample rate units (Sa/s, MSa/s, GSa/s)")]
+GenericUnitsField = Annotated[str, Field(description="Measurement units")]
+
+# Human-readable string fields
+HumanReadableMemoryField = Annotated[str, Field(description="Human-readable memory depth")]
+HumanReadableTimeField = Annotated[str, Field(description="Human-readable time scale")]
+HumanReadableSampleRateField = Annotated[str, Field(description="Human-readable sample rate")]
+
+
+class AcquisitionType(str, Enum):
+    """Acquisition type modes."""
+    NORMAL = "NORMAL"
+    AVERAGE = "AVERAGE"
+    PEAK = "PEAK"
+    ULTRA = "ULTRA"
+
+
+class TriggerStatus(str, Enum):
+    """Trigger status states."""
+    TRIGGERED = "triggered"
+    WAITING = "waiting"
+    RUNNING = "running"
+    AUTO = "auto"
+    STOPPED = "stopped"
+
+
+class TriggerMode(str, Enum):
+    """Trigger modes."""
+    EDGE = "EDGE"
+    PULSE = "PULSE"
+    SLOPE = "SLOPE"
+    VIDEO = "VIDEO"
+    PATTERN = "PATTERN"
+    RS232 = "RS232"
+    I2C = "I2C"
+    SPI = "SPI"
+    CAN = "CAN"
+    LIN = "LIN"
+    FLEXRAY = "FLEXRAY"
+    CANFD = "CANFD"
+
+
+class TriggerSlope(str, Enum):
+    """Trigger edge slopes."""
+    POSITIVE = "POS"  # Rising edge
+    NEGATIVE = "NEG"  # Falling edge  
+    RFAL = "RFAL"  # Either edge (rising or falling)
+
+
+class AcquisitionAction(str, Enum):
+    """Acquisition control actions."""
+    RUN = "run"
+    STOP = "stop"
+    SINGLE = "single"
+
+
+class SystemAction(str, Enum):
+    """System control actions."""
+    FORCE_TRIGGER = "force_trigger"
+    AUTO_SETUP = "auto_setup"
+    CLEAR_DISPLAY = "clear_display"
+
+
+
+
+class TriggerSweep(str, Enum):
+    """Trigger sweep modes."""
+    AUTO = "AUTO"  # Auto trigger
+    NORMAL = "NORMal"  # Normal trigger
+    SINGLE = "SINGle"  # Single trigger
+
+
+class WaveformMode(str, Enum):
+    """Waveform reading modes."""
+    NORMAL = "NORMal"  # Read displayed waveform
+    MAXIMUM = "MAXimum"  # Read maximum waveform data
+    RAW = "RAW"  # Read raw waveform data from memory
+
+
+class WaveformFormat(str, Enum):
+    """Waveform data formats."""
+    WORD = "WORD"  # 16-bit word format
+    BYTE = "BYTE"  # 8-bit byte format
+    ASCII = "ASCii"  # ASCII format
+
+
+class PulsePolarity(str, Enum):
+    """Pulse trigger polarity."""
+    POSITIVE = "POSitive"
+    NEGATIVE = "NEGative"
+
+
+class PulseWhen(str, Enum):
+    """Pulse trigger conditions."""
+    GREATER = "GREater"  # Pulse width greater than
+    LESS = "LESS"  # Pulse width less than
+    WITHIN = "WITHin"  # Pulse width within range
+
+
+
+class MemoryDepth(str, Enum):
+    """Memory depth options."""
+    AUTO = "AUTO"
+    K1 = "1K"
+    K10 = "10K"
+    K100 = "100K"
+    M1 = "1M"
+    M5 = "5M"  # Added 5M option from documentation
+    M10 = "10M"
+    M25 = "25M"
+    M50 = "50M"
+
+
+# === TYPE DEFINITIONS FOR RESULTS ===
+
+# Identity results
 class ModelNumberResult(TypedDict):
     """Result containing the oscilloscope model number."""
     model: Annotated[str, Field(description="The oscilloscope model number", examples=["DHO824", "DHO804", "DHO914", "DHO924"])]
@@ -30,22 +230,154 @@ class SerialNumberResult(TypedDict):
     serial: Annotated[str, Field(description="The unique serial number", examples=["DHO8240000001", "DHO8040000123", "DHO9140000456"])]
 
 
-class WaveformDataResult(TypedDict):
-    """Result containing captured waveform data."""
-    channel: Annotated[str, Field(description="Channel identifier")]
+# Channel results
+class ChannelEnableResult(TypedDict):
+    """Result for channel enable/disable operations."""
+    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    enabled: Annotated[bool, Field(description="Whether the channel is enabled")]
+
+
+class ChannelCouplingResult(TypedDict):
+    """Result for channel coupling settings."""
+    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    coupling: Annotated[Coupling, Field(description="Coupling mode")]
+
+
+class ChannelProbeResult(TypedDict):
+    """Result for channel probe settings."""
+    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    probe_ratio: ProbeRatioField
+
+
+class ChannelBandwidthResult(TypedDict):
+    """Result for channel bandwidth settings."""
+    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    bandwidth_limit: Annotated[BandwidthLimit, Field(description="Bandwidth limit setting")]
+
+
+class ChannelStatusResult(TypedDict):
+    """Comprehensive channel status."""
+    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    enabled: Annotated[bool, Field(description="Whether channel is enabled")]
+    coupling: Annotated[Coupling, Field(description="Coupling mode")]
+    probe_ratio: ProbeRatioField
+    bandwidth_limit: Annotated[BandwidthLimit, Field(description="Bandwidth limit")]
+    vertical_scale: VerticalScaleField
+    vertical_offset: VerticalOffsetField
+    invert: Annotated[bool, Field(description="Whether channel is inverted")]
+    units: GenericUnitsField
+
+
+class VerticalScaleResult(TypedDict):
+    """Result for vertical scale settings."""
+    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    vertical_scale: VerticalScaleField
+    units: GenericUnitsField
+
+
+class VerticalOffsetResult(TypedDict):
+    """Result for vertical offset settings."""
+    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
+    vertical_offset: VerticalOffsetField
+    units: GenericUnitsField
+
+
+# Timebase results
+class TimebaseScaleResult(TypedDict):
+    """Result for timebase scale settings."""
+    timebase_scale: Annotated[float, Field(description="Time per division in seconds")]
+    timebase_scale_str: HumanReadableTimeField
+
+
+class TimebaseOffsetResult(TypedDict):
+    """Result for timebase offset settings."""
+    timebase_offset: TimeOffsetField
+    units: TimeUnitsField
+
+
+# Acquisition results
+class AcquisitionStatusResult(TypedDict):
+    """Result for acquisition control operations."""
+    action: Annotated[AcquisitionAction, Field(description="Action performed")]
+    trigger_status: Annotated[TriggerStatus, Field(description="Current trigger status")]
+
+
+class MemoryDepthResult(TypedDict):
+    """Result for memory depth settings."""
+    memory_depth: Annotated[float, Field(description="Memory depth in points")]
+    memory_depth_str: HumanReadableMemoryField
+
+
+class AcquisitionTypeResult(TypedDict):
+    """Result for acquisition type settings."""
+    acquisition_type: Annotated[AcquisitionType, Field(description="Acquisition type mode")]
+
+
+class SampleRateResult(TypedDict):
+    """Result for sample rate queries."""
+    sample_rate: Annotated[float, Field(description="Sample rate in Sa/s")]
+    sample_rate_str: HumanReadableSampleRateField
+    units: SampleRateUnitsField
+
+
+# Trigger results
+class TriggerStatusResult(TypedDict):
+    """Current trigger status information."""
+    status: Annotated[TriggerStatus, Field(description="Trigger status")]
+    raw_status: Annotated[str, Field(description="Raw status from scope")]
+    mode: Annotated[str, Field(description="Current trigger mode")]
+    # Optional edge trigger fields
+    source: Annotated[Optional[str], Field(description="Trigger source for edge trigger")]
+    level: Annotated[Optional[float], Field(description="Trigger level for edge trigger")]
+    slope: Annotated[Optional[str], Field(description="Trigger slope for edge trigger")]
+
+
+class TriggerModeResult(TypedDict):
+    """Result for trigger mode settings."""
+    trigger_mode: Annotated[TriggerMode, Field(description="Trigger mode")]
+
+
+class TriggerSourceResult(TypedDict):
+    """Result for trigger source settings."""
+    trigger_source: Annotated[Channel, Field(description="Trigger source channel")]
+
+
+class TriggerLevelResult(TypedDict):
+    """Result for trigger level settings."""
+    trigger_level: Annotated[float, Field(description="Trigger level in volts")]
+    units: VoltageUnitsField
+
+
+class TriggerSlopeResult(TypedDict):
+    """Result for trigger slope settings."""
+    trigger_slope: Annotated[TriggerSlope, Field(description="Trigger slope (POSITIVE, NEGATIVE, or RFAL)")]
+
+
+# Action results
+class ActionResult(TypedDict):
+    """Result for simple action operations."""
+    action: Annotated[SystemAction, Field(description="Action performed")]
+
+
+# Waveform data
+class WaveformChannelData(TypedDict):
+    """Data for a single channel waveform capture."""
+    channel: Annotated[Channel, Field(description="Channel (CH1-CH4)")]
     data: Annotated[List[float], Field(description="Voltage values in specified units")]
     time: Annotated[List[float], Field(description="Time values in seconds")]
-    units: Annotated[str, Field(description="Voltage units (V, mV, μV, nV)")]
+    units: VoltageUnitsField
     sample_rate: Annotated[float, Field(description="Sample rate in Sa/s")]
+    time_increment: Annotated[float, Field(description="Time increment between samples")]
+    time_offset: TimeOffsetField
+    vertical_scale: VerticalScaleField
+    vertical_offset: VerticalOffsetField
+    probe_ratio: ProbeRatioField
     points: Annotated[int, Field(description="Number of data points")]
     timestamp: Annotated[str, Field(description="ISO format timestamp")]
+    statistics: Annotated[Dict[str, float], Field(description="Waveform statistics")]
 
 
-class StatusResult(TypedDict):
-    """Generic status result."""
-    success: Annotated[bool, Field(description="Whether the operation succeeded")]
-    message: Annotated[Optional[str], Field(description="Optional status message")]
-
+# === OSCILLOSCOPE CONNECTION CLASS ===
 
 class RigolDHO824:
     """Class to manage communication with Rigol DHO824 oscilloscope."""
@@ -127,7 +459,7 @@ class RigolDHO824:
         Parse the identity string into components.
         
         Returns:
-            Tuple of (manufacturer, model, serial, version) or None if parsing fails
+            Dictionary with manufacturer, model, serial, version or None if parsing fails
         """
         identity = self.get_identity()
         if not identity:
@@ -160,6 +492,51 @@ def create_server() -> FastMCP:
     
     # Create oscilloscope instance
     scope = RigolDHO824(resource_string if resource_string else None, timeout)
+    
+    # === HELPER FUNCTIONS FOR ENUM MAPPING ===
+    
+    def map_trigger_status(raw_status: str) -> TriggerStatus:
+        """Map raw trigger status to enum."""
+        status_map = {
+            "TD": TriggerStatus.TRIGGERED,
+            "WAIT": TriggerStatus.WAITING,
+            "RUN": TriggerStatus.RUNNING,
+            "AUTO": TriggerStatus.AUTO,
+            "STOP": TriggerStatus.STOPPED
+        }
+        return status_map.get(raw_status, TriggerStatus.STOPPED)
+    
+    def map_trigger_slope_response(raw_slope: str) -> TriggerSlope:
+        """Map SCPI slope response to TriggerSlope enum."""
+        slope_map = {
+            "POS": TriggerSlope.POSITIVE,
+            "NEG": TriggerSlope.NEGATIVE,
+            "RFAL": TriggerSlope.RFAL,
+            "EITH": TriggerSlope.RFAL  # Map EITHER to RFAL
+        }
+        return slope_map.get(raw_slope, TriggerSlope.POSITIVE)  # Default to POSITIVE
+    
+    def map_coupling_mode(raw_coupling: str) -> Coupling:
+        """Map raw coupling mode to enum."""
+        coupling = raw_coupling.upper()
+        if coupling in ["AC", "DC", "GND"]:
+            return Coupling(coupling)
+        # Handle abbreviated forms
+        if coupling == "AC":
+            return Coupling.AC
+        elif coupling == "DC":
+            return Coupling.DC
+        return Coupling.GND
+    
+    def map_acquisition_type(raw_type: str) -> AcquisitionType:
+        """Map raw acquisition type to enum."""
+        type_map = {
+            "NORM": AcquisitionType.NORMAL,
+            "AVER": AcquisitionType.AVERAGE,
+            "PEAK": AcquisitionType.PEAK,
+            "ULTR": AcquisitionType.ULTRA
+        }
+        return type_map.get(raw_type, AcquisitionType.NORMAL)
     
     # === IDENTITY TOOLS ===
     
@@ -242,8 +619,8 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def capture_waveform(
-        channels: Annotated[List[int], Field(description="List of channel numbers to capture (1-4)")] = [1]
-    ) -> List[Dict[str, Any]]:
+        channels: Annotated[List[Channel], Field(description="List of channels to capture (CH1-CH4)")] = [Channel.CH1]
+    ) -> List[WaveformChannelData]:
         """
         Capture waveform data from specified channels.
         
@@ -254,19 +631,115 @@ def create_server() -> FastMCP:
             channels: List of channel numbers to capture (1-4), defaults to [1]
             
         Returns:
-            List of dictionaries containing waveform data, time arrays, units, and metadata
+            List of waveform data for each channel
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            # Validate channel numbers
-            for ch in channels:
-                if ch not in [1, 2, 3, 4]:
-                    raise ValueError(f"Invalid channel number: {ch}. Must be 1-4")
+            # Channels are already validated by the enum type
             
-            # Capture data from all requested channels
-            results = WaveformCapture.capture_multiple_channels(scope.instrument, channels)
+            results = []
+            
+            # Stop acquisition once for all channels
+            scope.instrument.write(':STOP')
+            
+            for channel in channels:
+                # Check if channel is enabled
+                channel_enabled = int(scope.instrument.query(f':CHAN{channel.value}:DISP?'))
+                if not channel_enabled:
+                    continue
+                    
+                try:
+                    # Set source channel
+                    scope.instrument.write(f':WAV:SOUR {channel.chan_str}')
+                    
+                    # Configure for RAW mode with WORD format (16-bit)
+                    scope.instrument.write(':WAV:MODE RAW')
+                    scope.instrument.write(':WAV:FORM WORD')
+                    
+                    # Query memory depth to determine available points
+                    memory_depth = float(scope.instrument.query(':ACQ:MDEP?'))
+                    
+                    # Set read range (adjust if memory depth is large)
+                    max_points = min(int(memory_depth), 1000000)  # Cap at 1M points
+                    scope.instrument.write(':WAV:STAR 1')
+                    scope.instrument.write(f':WAV:STOP {max_points}')
+                    
+                    # Query waveform parameters for conversion
+                    y_increment = float(scope.instrument.query(':WAV:YINC?'))
+                    y_origin = float(scope.instrument.query(':WAV:YOR?'))
+                    y_reference = float(scope.instrument.query(':WAV:YREF?'))
+                    x_increment = float(scope.instrument.query(':WAV:XINC?'))
+                    x_origin = float(scope.instrument.query(':WAV:XOR?'))
+                    
+                    # Query channel settings
+                    vertical_scale = float(scope.instrument.query(f':CHAN{channel.value}:SCAL?'))
+                    vertical_offset = float(scope.instrument.query(f':CHAN{channel.value}:OFFS?'))
+                    probe_ratio = ProbeRatio.from_float(float(scope.instrument.query(f':CHAN{channel.value}:PROB?')))
+                    
+                    # Query sample rate
+                    sample_rate = float(scope.instrument.query(':ACQ:SRAT?'))
+                    
+                    # Capture the waveform data (16-bit unsigned integers)
+                    raw_data = scope.instrument.query_binary_values(
+                        ':WAV:DATA?', 
+                        datatype='H',  # Unsigned 16-bit
+                        is_big_endian=False
+                    )
+                    
+                    # Convert to numpy array
+                    raw_array = np.array(raw_data, dtype=np.float64)
+                    
+                    # Convert raw data to voltage values
+                    # The oscilloscope's y_increment, y_origin, and y_reference already account for probe ratio
+                    voltage_data = (raw_array - y_origin - y_reference) * y_increment
+                    
+                    # Determine appropriate units
+                    max_voltage = np.max(np.abs(voltage_data))
+                    if max_voltage < 1e-6:
+                        units = "nV"
+                        scale_factor = 1e9
+                    elif max_voltage < 1e-3:
+                        units = "μV"
+                        scale_factor = 1e6
+                    elif max_voltage < 1:
+                        units = "mV"
+                        scale_factor = 1e3
+                    else:
+                        units = "V"
+                        scale_factor = 1
+                    
+                    # Scale the data to appropriate units
+                    scaled_data = voltage_data * scale_factor
+                    
+                    # Generate time array
+                    time_points = np.arange(len(voltage_data)) * x_increment + x_origin
+                    
+                    results.append(WaveformChannelData(
+                        channel=channel,
+                        data=scaled_data.tolist(),
+                        time=time_points.tolist(),
+                        units=units,
+                        sample_rate=sample_rate,
+                        time_increment=x_increment,
+                        time_offset=x_origin,
+                        vertical_scale=vertical_scale,
+                        vertical_offset=vertical_offset,
+                        probe_ratio=probe_ratio,
+                        points=len(voltage_data),
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        statistics={
+                            "min": float(np.min(scaled_data)),
+                            "max": float(np.max(scaled_data)),
+                            "mean": float(np.mean(scaled_data)),
+                            "std": float(np.std(scaled_data)),
+                            "rms": float(np.sqrt(np.mean(scaled_data**2)))
+                        }
+                    ))
+                except Exception as e:
+                    # Skip channels with errors
+                    continue
             
             return results
             
@@ -279,9 +752,9 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_channel_enable(
-        channel: Annotated[int, Field(description="Channel number (1-4)")],
+        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
         enable: Annotated[bool, Field(description="True to enable, False to disable")]
-    ) -> Dict[str, Any]:
+    ) -> ChannelEnableResult:
         """
         Enable or disable a channel display.
         
@@ -290,14 +763,22 @@ def create_server() -> FastMCP:
             enable: True to enable, False to disable
             
         Returns:
-            Status dictionary with success indicator
+            Channel enable status
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = ChannelControl.set_channel_enable(scope.instrument, channel, enable)
-            return result
+            state = "ON" if enable else "OFF"
+            scope.instrument.write(f':CHAN{channel.value}:DISP {state}')
+            
+            # Verify the setting
+            actual_state = int(scope.instrument.query(f':CHAN{channel.value}:DISP?'))
+            
+            return ChannelEnableResult(
+                channel=channel,
+                enabled=bool(actual_state)
+            )
             
         except Exception as e:
             raise Exception(f"Error setting channel enable: {str(e)}") from e
@@ -306,25 +787,33 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_channel_coupling(
-        channel: Annotated[int, Field(description="Channel number (1-4)")],
-        coupling: Annotated[str, Field(description="Coupling mode: AC, DC, or GND")]
-    ) -> Dict[str, Any]:
+        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
+        coupling: Annotated[ChannelCoupling, Field(description="Coupling mode: AC, DC, or GND")]
+    ) -> ChannelCouplingResult:
         """
         Set channel coupling mode.
         
         Args:
-            channel: Channel number (1-4)
-            coupling: Coupling mode ("AC", "DC", "GND")
+            channel: Channel number (CH1-CH4)
+            coupling: Coupling mode (AC, DC, or GND)
             
         Returns:
-            Status dictionary with actual coupling set
+            Channel coupling setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = ChannelControl.set_channel_coupling(scope.instrument, channel, coupling)
-            return result
+            # Use enum value directly
+            scope.instrument.write(f':CHAN{channel.value}:COUP {coupling.value}')
+            
+            # Verify the setting
+            actual_coupling = scope.instrument.query(f':CHAN{channel.value}:COUP?').strip()
+            
+            return ChannelCouplingResult(
+                channel=channel,
+                coupling=map_coupling_mode(actual_coupling)
+            )
             
         except Exception as e:
             raise Exception(f"Error setting channel coupling: {str(e)}") from e
@@ -333,9 +822,9 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_channel_probe(
-        channel: Annotated[int, Field(description="Channel number (1-4)")],
-        ratio: Annotated[float, Field(description="Probe ratio (e.g., 1, 10, 100, 1000)")]
-    ) -> Dict[str, Any]:
+        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
+        ratio: Annotated[ProbeRatio, Field(description="Probe attenuation ratio")]
+    ) -> ChannelProbeResult:
         """
         Set channel probe attenuation ratio.
         
@@ -344,14 +833,23 @@ def create_server() -> FastMCP:
             ratio: Probe ratio (e.g., 1, 10, 100, 1000)
             
         Returns:
-            Status dictionary with actual probe ratio set
+            Channel probe setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = ChannelControl.set_channel_probe(scope.instrument, channel, ratio)
-            return result
+            # Format as integer if it's a whole number, otherwise as float
+            probe_value = int(ratio.value) if ratio.value.is_integer() else ratio.value
+            scope.instrument.write(f':CHAN{channel.value}:PROB {probe_value}')
+            
+            # Verify the setting
+            actual_ratio = float(scope.instrument.query(f':CHAN{channel.value}:PROB?'))
+            
+            return ChannelProbeResult(
+                channel=channel,
+                probe_ratio=ProbeRatio.from_float(actual_ratio)
+            )
             
         except Exception as e:
             raise Exception(f"Error setting channel probe: {str(e)}") from e
@@ -360,9 +858,9 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_channel_bandwidth(
-        channel: Annotated[int, Field(description="Channel number (1-4)", ge=1, le=4)],
+        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
         bandwidth: Annotated[Optional[BandwidthLimit], Field(description="Bandwidth limit: OFF (full bandwidth) or LIMIT_20M (20MHz limit). Default is OFF")] = None
-    ) -> Dict[str, Any]:
+    ) -> ChannelBandwidthResult:
         """
         Set channel bandwidth limit to reduce noise and filter high frequencies.
         
@@ -382,14 +880,33 @@ def create_server() -> FastMCP:
             bandwidth: Bandwidth limit enum value, None defaults to OFF
             
         Returns:
-            Status dictionary with actual bandwidth limit set
+            Channel bandwidth setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = ChannelControl.set_channel_bandwidth(scope.instrument, channel, bandwidth)
-            return result
+            if bandwidth is None:
+                bandwidth = BandwidthLimit.OFF
+            
+            # Use the enum's value for the SCPI command
+            bw_value = bandwidth.value
+            
+            scope.instrument.write(f':CHAN{channel.value}:BWL {bw_value}')
+            
+            # Verify the setting
+            actual_bw = scope.instrument.query(f':CHAN{channel.value}:BWL?').strip()
+            
+            # Map response to enum
+            if actual_bw == "20M":
+                result_bw = BandwidthLimit.LIMIT_20M
+            else:
+                result_bw = BandwidthLimit.OFF
+            
+            return ChannelBandwidthResult(
+                channel=channel,
+                bandwidth_limit=result_bw
+            )
             
         except Exception as e:
             raise Exception(f"Error setting channel bandwidth: {str(e)}") from e
@@ -398,8 +915,8 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def get_channel_status(
-        channel: Annotated[int, Field(description="Channel number (1-4)")]
-    ) -> Dict[str, Any]:
+        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")]
+    ) -> ChannelStatusResult:
         """
         Get comprehensive channel status and settings.
         
@@ -407,14 +924,39 @@ def create_server() -> FastMCP:
             channel: Channel number (1-4)
             
         Returns:
-            Dictionary with all channel settings
+            All channel settings
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = ChannelControl.get_channel_status(scope.instrument, channel)
-            return result
+            # Query all channel settings
+            enabled = bool(int(scope.instrument.query(f':CHAN{channel.value}:DISP?')))
+            coupling = scope.instrument.query(f':CHAN{channel.value}:COUP?').strip()
+            probe_ratio = ProbeRatio.from_float(float(scope.instrument.query(f':CHAN{channel.value}:PROB?')))
+            bw_limit = scope.instrument.query(f':CHAN{channel.value}:BWL?').strip()
+            vertical_scale = float(scope.instrument.query(f':CHAN{channel.value}:SCAL?'))
+            vertical_offset = float(scope.instrument.query(f':CHAN{channel.value}:OFFS?'))
+            invert = bool(int(scope.instrument.query(f':CHAN{channel.value}:INV?')))
+            units = scope.instrument.query(f':CHAN{channel.value}:UNIT?').strip()
+            
+            # Map bandwidth limit
+            if bw_limit == "20M":
+                bandwidth_limit = BandwidthLimit.LIMIT_20M
+            else:
+                bandwidth_limit = BandwidthLimit.OFF
+            
+            return ChannelStatusResult(
+                channel=channel,
+                enabled=enabled,
+                coupling=map_coupling_mode(coupling),
+                probe_ratio=probe_ratio,
+                bandwidth_limit=bandwidth_limit,
+                vertical_scale=vertical_scale,
+                vertical_offset=vertical_offset,
+                invert=invert,
+                units=units
+            )
             
         except Exception as e:
             raise Exception(f"Error getting channel status: {str(e)}") from e
@@ -425,9 +967,9 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_vertical_scale(
-        channel: Annotated[int, Field(description="Channel number (1-4)")],
-        scale: Annotated[float, Field(description="Vertical scale in V/div")]
-    ) -> Dict[str, Any]:
+        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
+        scale: VerticalScaleField
+    ) -> VerticalScaleResult:
         """
         Set channel vertical scale (V/div).
         
@@ -436,14 +978,36 @@ def create_server() -> FastMCP:
             scale: Vertical scale in V/div
             
         Returns:
-            Status dictionary with actual scale set
+            Vertical scale setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = ChannelControl.set_vertical_scale(scope.instrument, channel, scale)
-            return result
+            # Valid scales follow 1-2-5 sequence
+            valid_scales = [
+                1e-3, 2e-3, 5e-3,  # mV range
+                1e-2, 2e-2, 5e-2,
+                1e-1, 2e-1, 5e-1,
+                1, 2, 5,           # V range
+                10, 20, 50,
+                100
+            ]
+            
+            # Find closest valid scale
+            if scale not in valid_scales:
+                scale = valid_scales[np.argmin(np.abs(np.array(valid_scales) - scale))]
+            
+            scope.instrument.write(f':CHAN{channel.value}:SCAL {scale}')
+            
+            # Verify the setting
+            actual_scale = float(scope.instrument.query(f':CHAN{channel.value}:SCAL?'))
+            
+            return VerticalScaleResult(
+                channel=channel,
+                vertical_scale=actual_scale,
+                units="V/div"
+            )
             
         except Exception as e:
             raise Exception(f"Error setting vertical scale: {str(e)}") from e
@@ -452,9 +1016,9 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_vertical_offset(
-        channel: Annotated[int, Field(description="Channel number (1-4)")],
-        offset: Annotated[float, Field(description="Vertical offset in volts")]
-    ) -> Dict[str, Any]:
+        channel: Annotated[Channel, Field(description="Channel number (CH1-CH4)")],
+        offset: VerticalOffsetField
+    ) -> VerticalOffsetResult:
         """
         Set channel vertical offset.
         
@@ -463,14 +1027,22 @@ def create_server() -> FastMCP:
             offset: Vertical offset in volts
             
         Returns:
-            Status dictionary with actual offset set
+            Vertical offset setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = ChannelControl.set_vertical_offset(scope.instrument, channel, offset)
-            return result
+            scope.instrument.write(f':CHAN{channel.value}:OFFS {offset}')
+            
+            # Verify the setting
+            actual_offset = float(scope.instrument.query(f':CHAN{channel.value}:OFFS?'))
+            
+            return VerticalOffsetResult(
+                channel=channel,
+                vertical_offset=actual_offset,
+                units="V"
+            )
             
         except Exception as e:
             raise Exception(f"Error setting vertical offset: {str(e)}") from e
@@ -480,7 +1052,7 @@ def create_server() -> FastMCP:
     @mcp.tool
     async def set_timebase_scale(
         scale: Annotated[float, Field(description="Time per division in seconds")]
-    ) -> Dict[str, Any]:
+    ) -> TimebaseScaleResult:
         """
         Set horizontal timebase scale.
         
@@ -488,14 +1060,31 @@ def create_server() -> FastMCP:
             scale: Time per division in seconds
             
         Returns:
-            Status dictionary with actual scale set
+            Timebase scale setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.set_timebase_scale(scope.instrument, scale)
-            return result
+            scope.instrument.write(f':TIM:MAIN:SCAL {scale}')
+            
+            # Verify the setting
+            actual_scale = float(scope.instrument.query(':TIM:MAIN:SCAL?'))
+            
+            # Convert to human-readable format
+            if actual_scale >= 1:
+                scale_str = f"{actual_scale:.2f} s/div"
+            elif actual_scale >= 1e-3:
+                scale_str = f"{actual_scale*1e3:.2f} ms/div"
+            elif actual_scale >= 1e-6:
+                scale_str = f"{actual_scale*1e6:.2f} μs/div"
+            else:
+                scale_str = f"{actual_scale*1e9:.2f} ns/div"
+            
+            return TimebaseScaleResult(
+                timebase_scale=actual_scale,
+                timebase_scale_str=scale_str
+            )
             
         except Exception as e:
             raise Exception(f"Error setting timebase scale: {str(e)}") from e
@@ -504,8 +1093,8 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_timebase_offset(
-        offset: Annotated[float, Field(description="Time offset in seconds")]
-    ) -> Dict[str, Any]:
+        offset: TimeOffsetField
+    ) -> TimebaseOffsetResult:
         """
         Set horizontal timebase offset.
         
@@ -513,14 +1102,21 @@ def create_server() -> FastMCP:
             offset: Time offset in seconds
             
         Returns:
-            Status dictionary with actual offset set
+            Timebase offset setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.set_timebase_offset(scope.instrument, offset)
-            return result
+            scope.instrument.write(f':TIM:MAIN:OFFS {offset}')
+            
+            # Verify the setting
+            actual_offset = float(scope.instrument.query(':TIM:MAIN:OFFS?'))
+            
+            return TimebaseOffsetResult(
+                timebase_offset=actual_offset,
+                units="s"
+            )
             
         except Exception as e:
             raise Exception(f"Error setting timebase offset: {str(e)}") from e
@@ -530,19 +1126,29 @@ def create_server() -> FastMCP:
     # === ACQUISITION CONTROL TOOLS ===
     
     @mcp.tool
-    async def run_acquisition() -> Dict[str, Any]:
+    async def run_acquisition() -> AcquisitionStatusResult:
         """
         Start continuous acquisition (RUN mode).
         
         Returns:
-            Status dictionary with trigger status
+            Acquisition status
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.run_acquisition(scope.instrument)
-            return result
+            scope.instrument.write(':RUN')
+            
+            # Give it a moment to start
+            time.sleep(0.1)
+            
+            # Check trigger status
+            status = scope.instrument.query(':TRIG:STAT?').strip()
+            
+            return AcquisitionStatusResult(
+                action=AcquisitionAction.RUN,
+                trigger_status=map_trigger_status(status)
+            )
             
         except Exception as e:
             raise Exception(f"Error starting acquisition: {str(e)}") from e
@@ -550,19 +1156,29 @@ def create_server() -> FastMCP:
             scope.disconnect()
     
     @mcp.tool
-    async def stop_acquisition() -> Dict[str, Any]:
+    async def stop_acquisition() -> AcquisitionStatusResult:
         """
         Stop acquisition (STOP mode).
         
         Returns:
-            Status dictionary with trigger status
+            Acquisition status
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.stop_acquisition(scope.instrument)
-            return result
+            scope.instrument.write(':STOP')
+            
+            # Give it a moment to stop
+            time.sleep(0.1)
+            
+            # Check trigger status
+            status = scope.instrument.query(':TRIG:STAT?').strip()
+            
+            return AcquisitionStatusResult(
+                action=AcquisitionAction.STOP,
+                trigger_status=map_trigger_status(status)
+            )
             
         except Exception as e:
             raise Exception(f"Error stopping acquisition: {str(e)}") from e
@@ -570,19 +1186,29 @@ def create_server() -> FastMCP:
             scope.disconnect()
     
     @mcp.tool
-    async def single_acquisition() -> Dict[str, Any]:
+    async def single_acquisition() -> AcquisitionStatusResult:
         """
         Perform single acquisition (SINGLE mode).
         
         Returns:
-            Status dictionary with trigger status
+            Acquisition status
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.single_acquisition(scope.instrument)
-            return result
+            scope.instrument.write(':SING')
+            
+            # Give it a moment to arm
+            time.sleep(0.1)
+            
+            # Check trigger status
+            status = scope.instrument.query(':TRIG:STAT?').strip()
+            
+            return AcquisitionStatusResult(
+                action=AcquisitionAction.SINGLE,
+                trigger_status=map_trigger_status(status)
+            )
             
         except Exception as e:
             raise Exception(f"Error performing single acquisition: {str(e)}") from e
@@ -590,19 +1216,22 @@ def create_server() -> FastMCP:
             scope.disconnect()
     
     @mcp.tool
-    async def force_trigger() -> Dict[str, Any]:
+    async def force_trigger() -> ActionResult:
         """
         Force a trigger event.
         
         Returns:
-            Status dictionary
+            Action confirmation
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = TriggerControl.force_trigger(scope.instrument)
-            return result
+            scope.instrument.write(':TFOR')
+            
+            return ActionResult(
+                action=SystemAction.FORCE_TRIGGER
+            )
             
         except Exception as e:
             raise Exception(f"Error forcing trigger: {str(e)}") from e
@@ -610,18 +1239,39 @@ def create_server() -> FastMCP:
             scope.disconnect()
     
     @mcp.tool
-    async def get_trigger_status() -> Dict[str, Any]:
+    async def get_trigger_status() -> TriggerStatusResult:
         """
         Get current trigger status.
         
         Returns:
-            Dictionary with trigger status and settings
+            Trigger status and settings
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = TriggerControl.get_trigger_status(scope.instrument)
+            # Query trigger status
+            status = scope.instrument.query(':TRIG:STAT?').strip()
+            
+            # Get additional trigger info
+            mode = scope.instrument.query(':TRIG:MODE?').strip()
+            
+            result: TriggerStatusResult = {
+                "status": map_trigger_status(status),
+                "raw_status": status,
+                "mode": mode,
+                "source": None,
+                "level": None,
+                "slope": None
+            }
+            
+            # If edge trigger, get edge-specific settings
+            if mode in ["EDGE", "EDG"]:
+                result["source"] = scope.instrument.query(':TRIG:EDGE:SOUR?').strip()
+                result["level"] = float(scope.instrument.query(':TRIG:EDGE:LEV?'))
+                raw_slope = scope.instrument.query(':TRIG:EDGE:SLOP?').strip()
+                result["slope"] = map_trigger_slope_response(raw_slope)
+            
             return result
             
         except Exception as e:
@@ -633,24 +1283,33 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_trigger_mode(
-        mode: Annotated[str, Field(description="Trigger mode: EDGE, PULSE, SLOPE, etc.")]
-    ) -> Dict[str, Any]:
+        mode: Annotated[TriggerMode, Field(description="Trigger mode")]
+    ) -> TriggerModeResult:
         """
         Set trigger mode.
         
         Args:
-            mode: Trigger mode ("EDGE", "PULSE", "SLOPE", "VIDEO", "PATTERN", 
-                  "RS232", "I2C", "SPI", "CAN", "LIN", "FLEXRAY", "CANFD")
+            mode: Trigger mode
             
         Returns:
-            Status dictionary with actual mode set
+            Trigger mode setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = TriggerControl.set_trigger_mode(scope.instrument, mode)
-            return result
+            scope.instrument.write(f':TRIG:MODE {mode.value}')
+            
+            # Verify the setting
+            actual_mode = scope.instrument.query(':TRIG:MODE?').strip()
+            
+            # Map to enum - handle abbreviated responses
+            for trigger_mode in TriggerMode:
+                if actual_mode == trigger_mode.value or actual_mode == trigger_mode.value[:4]:
+                    return TriggerModeResult(trigger_mode=trigger_mode)
+            
+            # Default to EDGE if unknown
+            return TriggerModeResult(trigger_mode=TriggerMode.EDGE)
             
         except Exception as e:
             raise Exception(f"Error setting trigger mode: {str(e)}") from e
@@ -659,23 +1318,49 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_trigger_source(
-        source: Annotated[str, Field(description="Trigger source: CH1, CH2, CH3, CH4, EXT, AC")]
-    ) -> Dict[str, Any]:
+        source: Annotated[Channel, Field(description="Trigger source: CH1, CH2, CH3, or CH4")]
+    ) -> TriggerSourceResult:
         """
         Set trigger source for edge trigger.
         
         Args:
-            source: Trigger source ("CH1", "CH2", "CH3", "CH4", "EXT", "AC")
+            source: Trigger source (CH1, CH2, CH3, or CH4)
             
         Returns:
-            Status dictionary with actual source set
+            Trigger source setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = TriggerControl.set_trigger_source(scope.instrument, source)
-            return result
+            # Ensure we're in edge trigger mode
+            current_mode = scope.instrument.query(':TRIG:MODE?').strip()
+            if current_mode not in ["EDGE", "EDG"]:
+                scope.instrument.write(':TRIG:MODE EDGE')
+            
+            # Use the channel's SCPI format
+            scope.instrument.write(f':TRIG:EDGE:SOUR {source.chan_str}')
+            
+            # Verify the setting
+            actual_source = scope.instrument.query(':TRIG:EDGE:SOUR?').strip()
+            
+            # Map back to Channel enum
+            if actual_source.startswith("CHAN"):
+                channel_num = int(actual_source[-1])
+                # Get the Channel enum by its value
+                result_source = Channel(channel_num)
+            else:
+                # If not CHAN format, try to parse as CH format
+                if actual_source.startswith("CH"):
+                    channel_num = int(actual_source[-1])
+                    result_source = Channel(channel_num)
+                else:
+                    # Default to CH1 if unrecognized
+                    result_source = Channel.CH1
+            
+            return TriggerSourceResult(
+                trigger_source=result_source
+            )
             
         except Exception as e:
             raise Exception(f"Error setting trigger source: {str(e)}") from e
@@ -685,8 +1370,8 @@ def create_server() -> FastMCP:
     @mcp.tool
     async def set_trigger_level(
         level: Annotated[float, Field(description="Trigger level in volts")],
-        source: Annotated[Optional[str], Field(description="Optional trigger source")] = None
-    ) -> Dict[str, Any]:
+        source: Annotated[Optional[Channel], Field(description="Optional trigger source")] = None
+    ) -> TriggerLevelResult:
         """
         Set trigger level voltage.
         
@@ -695,14 +1380,31 @@ def create_server() -> FastMCP:
             source: Optional source to set level for (defaults to current source)
             
         Returns:
-            Status dictionary with actual level set
+            Trigger level setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = TriggerControl.set_trigger_level(scope.instrument, level, source)
-            return result
+            # If source specified, set it first
+            if source:
+                # Ensure we're in edge trigger mode
+                current_mode = scope.instrument.query(':TRIG:MODE?').strip()
+                if current_mode not in ["EDGE", "EDG"]:
+                    scope.instrument.write(':TRIG:MODE EDGE')
+                
+                # Set the source
+                scope.instrument.write(f':TRIG:EDGE:SOUR {source.chan_str}')
+            
+            scope.instrument.write(f':TRIG:EDGE:LEV {level}')
+            
+            # Verify the setting
+            actual_level = float(scope.instrument.query(':TRIG:EDGE:LEV?'))
+            
+            return TriggerLevelResult(
+                trigger_level=actual_level,
+                units="V"
+            )
             
         except Exception as e:
             raise Exception(f"Error setting trigger level: {str(e)}") from e
@@ -711,23 +1413,33 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_trigger_slope(
-        slope: Annotated[str, Field(description="Edge slope: RISING, FALLING, or EITHER")]
-    ) -> Dict[str, Any]:
+        slope: Annotated[TriggerSlope, Field(description="Edge slope: POSITIVE, NEGATIVE, or RFAL")]
+    ) -> TriggerSlopeResult:
         """
         Set trigger edge slope.
         
         Args:
-            slope: Edge slope ("RISING", "FALLING", "EITHER", "POSITIVE", "NEGATIVE")
+            slope: Edge slope (POSITIVE, NEGATIVE, or RFAL)
             
         Returns:
-            Status dictionary with actual slope set
+            Trigger slope setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = TriggerControl.set_trigger_slope(scope.instrument, slope)
-            return result
+            # Use enum value directly (already in SCPI format)
+            scope.instrument.write(f':TRIG:EDGE:SLOP {slope.value}')
+            
+            # Verify the setting
+            actual_slope = scope.instrument.query(':TRIG:EDGE:SLOP?').strip()
+            
+            # Map back to friendly names
+            result_slope = map_trigger_slope_response(actual_slope)
+            
+            return TriggerSlopeResult(
+                trigger_slope=result_slope
+            )
             
         except Exception as e:
             raise Exception(f"Error setting trigger slope: {str(e)}") from e
@@ -738,23 +1450,38 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_memory_depth(
-        depth: Annotated[str, Field(description="Memory depth: AUTO, 1K, 10K, 100K, 1M, 10M, 25M, 50M")]
-    ) -> Dict[str, Any]:
+        depth: Annotated[MemoryDepth, Field(description="Memory depth setting")]
+    ) -> MemoryDepthResult:
         """
         Set acquisition memory depth.
         
         Args:
-            depth: Memory depth ("AUTO", "1K", "10K", "100K", "1M", "10M", "25M", "50M")
+            depth: Memory depth
             
         Returns:
-            Status dictionary with actual depth set
+            Memory depth setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.set_memory_depth(scope.instrument, depth)
-            return result
+            scope.instrument.write(f':ACQ:MDEP {depth.value}')
+            
+            # Verify the setting
+            actual_depth = float(scope.instrument.query(':ACQ:MDEP?'))
+            
+            # Convert to human-readable format
+            if actual_depth >= 1e6:
+                depth_str = f"{actual_depth/1e6:.0f}M"
+            elif actual_depth >= 1e3:
+                depth_str = f"{actual_depth/1e3:.0f}K"
+            else:
+                depth_str = f"{actual_depth:.0f}"
+            
+            return MemoryDepthResult(
+                memory_depth=actual_depth,
+                memory_depth_str=depth_str
+            )
             
         except Exception as e:
             raise Exception(f"Error setting memory depth: {str(e)}") from e
@@ -763,23 +1490,38 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def set_acquisition_type(
-        acq_type: Annotated[str, Field(description="Acquisition type: NORMAL, AVERAGE, PEAK, or ULTRA")]
-    ) -> Dict[str, Any]:
+        acq_type: Annotated[AcquisitionType, Field(description="Acquisition type")]
+    ) -> AcquisitionTypeResult:
         """
         Set acquisition type.
         
         Args:
-            acq_type: Acquisition type ("NORMAL", "AVERAGE", "PEAK", "ULTRA")
+            acq_type: Acquisition type
             
         Returns:
-            Status dictionary with actual type set
+            Acquisition type setting
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.set_acquisition_type(scope.instrument, acq_type)
-            return result
+            # Map enum to SCPI format
+            type_map = {
+                AcquisitionType.NORMAL: "NORMal",
+                AcquisitionType.AVERAGE: "AVERages",
+                AcquisitionType.PEAK: "PEAK",
+                AcquisitionType.ULTRA: "ULTRa"
+            }
+            
+            scpi_type = type_map[acq_type]
+            scope.instrument.write(f':ACQ:TYPE {scpi_type}')
+            
+            # Verify the setting
+            actual_type = scope.instrument.query(':ACQ:TYPE?').strip()
+            
+            return AcquisitionTypeResult(
+                acquisition_type=map_acquisition_type(actual_type)
+            )
             
         except Exception as e:
             raise Exception(f"Error setting acquisition type: {str(e)}") from e
@@ -787,19 +1529,34 @@ def create_server() -> FastMCP:
             scope.disconnect()
     
     @mcp.tool
-    async def get_sample_rate() -> Dict[str, Any]:
+    async def get_sample_rate() -> SampleRateResult:
         """
         Get current sample rate.
         
         Returns:
-            Dictionary with sample rate information
+            Sample rate information
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.get_sample_rate(scope.instrument)
-            return result
+            sample_rate = float(scope.instrument.query(':ACQ:SRAT?'))
+            
+            # Convert to human-readable format
+            if sample_rate >= 1e9:
+                rate_str = f"{sample_rate/1e9:.2f} GSa/s"
+            elif sample_rate >= 1e6:
+                rate_str = f"{sample_rate/1e6:.2f} MSa/s"
+            elif sample_rate >= 1e3:
+                rate_str = f"{sample_rate/1e3:.2f} kSa/s"
+            else:
+                rate_str = f"{sample_rate:.2f} Sa/s"
+            
+            return SampleRateResult(
+                sample_rate=sample_rate,
+                sample_rate_str=rate_str,
+                units="Sa/s"
+            )
             
         except Exception as e:
             raise Exception(f"Error getting sample rate: {str(e)}") from e
@@ -809,7 +1566,7 @@ def create_server() -> FastMCP:
     # === UTILITY TOOLS ===
     
     @mcp.tool
-    async def auto_setup() -> Dict[str, Any]:
+    async def auto_setup() -> ActionResult:
         """
         Perform automatic setup of the oscilloscope.
         
@@ -817,14 +1574,20 @@ def create_server() -> FastMCP:
         settings for optimal display of the input signal.
         
         Returns:
-            Status dictionary
+            Action confirmation
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.auto_setup(scope.instrument)
-            return result
+            scope.instrument.write(':AUT')
+            
+            # Auto setup takes a moment
+            time.sleep(2)
+            
+            return ActionResult(
+                action=SystemAction.AUTO_SETUP
+            )
             
         except Exception as e:
             raise Exception(f"Error performing auto setup: {str(e)}") from e
@@ -832,19 +1595,22 @@ def create_server() -> FastMCP:
             scope.disconnect()
     
     @mcp.tool
-    async def clear_display() -> Dict[str, Any]:
+    async def clear_display() -> ActionResult:
         """
         Clear the oscilloscope display.
         
         Returns:
-            Status dictionary
+            Action confirmation
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            result = AcquisitionControl.clear_display(scope.instrument)
-            return result
+            scope.instrument.write(':CLE')
+            
+            return ActionResult(
+                action=SystemAction.CLEAR_DISPLAY
+            )
             
         except Exception as e:
             raise Exception(f"Error clearing display: {str(e)}") from e
