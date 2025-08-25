@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Optional, TypedDict, Annotated, List, Literal
 import numpy as np
 from pydantic import Field
-from fastmcp import FastMCP
+from fastmcp import FastMCP, Context
 from dotenv import load_dotenv
 import pyvisa
 
@@ -597,6 +597,7 @@ def create_server() -> FastMCP:
     
     @mcp.tool
     async def capture_waveform(
+        ctx: Context,
         channels: Annotated[List[ChannelNumber], Field(description="List of channels to capture (1-4)", examples=[[1], [1, 2]])] = [1]
     ) -> List[WaveformChannelData]:
         """
@@ -604,6 +605,7 @@ def create_server() -> FastMCP:
         
         Captures data in RAW mode with WORD format (16-bit) for maximum accuracy.
         Reads all available points from oscilloscope memory (up to 50M points depending on settings).
+        Uses chunked reading with progress reporting for large data transfers.
         Returns raw ADC values along with all parameters needed for voltage conversion.
         The 'truncated' field indicates if any ADC values reached saturation (65535),
         which suggests the signal may be clipped and vertical scale adjustment may be needed.
@@ -621,17 +623,20 @@ def create_server() -> FastMCP:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
-            # Channels are already validated by the enum type
-            
             results = []
             
             # Stop acquisition once for all channels
             scope.instrument.write(':STOP')
+            scope.instrument.query('*OPC?')  # Wait for stop to complete
             
-            for channel in channels:
+            for channel_idx, channel in enumerate(channels):
                 # Check if channel is enabled
                 channel_enabled = int(scope.instrument.query(f':CHAN{channel}:DISP?'))
                 if not channel_enabled:
+                    await ctx.report_progress(
+                        progress=(channel_idx + 1) / len(channels),
+                        message=f"Channel {channel} is disabled, skipping"
+                    )
                     continue
                     
                 try:
@@ -644,13 +649,15 @@ def create_server() -> FastMCP:
                     
                     # Query memory depth to determine available points
                     memory_depth = float(scope.instrument.query(':ACQ:MDEP?'))
+                    max_points = int(memory_depth)
                     
-                    # Set read range to full memory depth
-                    max_points = int(memory_depth)  # Read all available points
-                    scope.instrument.write(':WAV:STAR 1')
-                    scope.instrument.write(f':WAV:STOP {max_points}')
+                    # Adjust timeout based on memory depth
+                    # Estimate: 100ms per 100k points + 10s buffer
+                    if memory_depth > 1000000:  # >1M points
+                        new_timeout = int((memory_depth / 100000) * 100 + 10000)
+                        scope.instrument.timeout = new_timeout
                     
-                    # Query waveform parameters for conversion
+                    # Query waveform parameters for conversion (before data transfer)
                     y_increment = float(scope.instrument.query(':WAV:YINC?'))
                     y_origin = float(scope.instrument.query(':WAV:YOR?'))
                     y_reference = float(scope.instrument.query(':WAV:YREF?'))
@@ -665,20 +672,65 @@ def create_server() -> FastMCP:
                     # Query sample rate
                     sample_rate = float(scope.instrument.query(':ACQ:SRAT?'))
                     
-                    # Capture the waveform data (16-bit unsigned integers)
-                    raw_data = scope.instrument.query_binary_values(
-                        ':WAV:DATA?', 
-                        datatype='H',  # Unsigned 16-bit
-                        is_big_endian=False
-                    )
+                    # Chunked reading for large data
+                    chunk_size = 10000  # 10k points per chunk
+                    raw_data = []
                     
-                    # Check for ADC saturation using numpy for efficiency (65535 is max value for 16-bit unsigned)
+                    if max_points > chunk_size:
+                        # Use chunked reading with progress reporting
+                        num_chunks = (max_points + chunk_size - 1) // chunk_size
+                        
+                        for chunk_idx in range(num_chunks):
+                            start = chunk_idx * chunk_size + 1
+                            end = min(start + chunk_size - 1, max_points)
+                            
+                            # Report progress
+                            base_progress = channel_idx / len(channels)
+                            chunk_progress = (chunk_idx / num_chunks) / len(channels)
+                            await ctx.report_progress(
+                                progress=base_progress + chunk_progress,
+                                message=f"Channel {channel}: Reading points {start:,} to {end:,} of {max_points:,}"
+                            )
+                            
+                            # Set chunk range
+                            scope.instrument.write(f':WAV:STAR {start}')
+                            scope.instrument.write(f':WAV:STOP {end}')
+                            
+                            # Read chunk
+                            chunk_data = scope.instrument.query_binary_values(
+                                ':WAV:DATA?',
+                                datatype='H',  # Unsigned 16-bit
+                                is_big_endian=False
+                            )
+                            raw_data.extend(chunk_data)
+                    else:
+                        # Small data, read all at once
+                        await ctx.report_progress(
+                            progress=(channel_idx + 0.5) / len(channels),
+                            message=f"Channel {channel}: Reading {max_points:,} points"
+                        )
+                        
+                        scope.instrument.write(':WAV:STAR 1')
+                        scope.instrument.write(f':WAV:STOP {max_points}')
+                        
+                        raw_data = scope.instrument.query_binary_values(
+                            ':WAV:DATA?',
+                            datatype='H',  # Unsigned 16-bit
+                            is_big_endian=False
+                        )
+                    
+                    # Check for ADC saturation (65535 is max value for 16-bit unsigned)
                     truncated = bool(np.max(raw_data) == 65535) if raw_data else False
+                    
+                    await ctx.report_progress(
+                        progress=(channel_idx + 1) / len(channels),
+                        message=f"Channel {channel}: Completed ({len(raw_data):,} points)"
+                    )
                     
                     results.append(WaveformChannelData(
                         channel=channel,
-                        raw_data=raw_data,  # Return raw ADC values directly
-                        truncated=truncated,  # Indicate if any values hit ADC saturation
+                        raw_data=raw_data,
+                        truncated=truncated,
                         y_increment=y_increment,
                         y_origin=y_origin,
                         y_reference=y_reference,
@@ -691,7 +743,10 @@ def create_server() -> FastMCP:
                         points=len(raw_data)
                     ))
                 except Exception as e:
-                    # Skip channels with errors
+                    await ctx.report_progress(
+                        progress=(channel_idx + 1) / len(channels),
+                        message=f"Channel {channel}: Error - {str(e)}"
+                    )
                     continue
             
             return results
