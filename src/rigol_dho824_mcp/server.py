@@ -605,6 +605,7 @@ def create_server() -> FastMCP:
         Capture raw waveform data from specified channels.
         
         Captures data in RAW mode with WORD format (16-bit) for maximum accuracy.
+        Reads all available points from oscilloscope memory (up to 50M points depending on settings).
         Returns raw ADC values along with all parameters needed for voltage conversion.
         The 'truncated' field indicates if any ADC values reached saturation (65535),
         which suggests the signal may be clipped and vertical scale adjustment may be needed.
@@ -646,8 +647,8 @@ def create_server() -> FastMCP:
                     # Query memory depth to determine available points
                     memory_depth = float(scope.instrument.query(':ACQ:MDEP?'))
                     
-                    # Set read range (adjust if memory depth is large)
-                    max_points = min(int(memory_depth), 1000000)  # Cap at 1M points
+                    # Set read range to full memory depth
+                    max_points = int(memory_depth)  # Read all available points
                     scope.instrument.write(':WAV:STAR 1')
                     scope.instrument.write(f':WAV:STOP {max_points}')
                     
