@@ -2,11 +2,14 @@
 
 import os
 import time
+import json
+from datetime import datetime
 from enum import Enum
-from typing import Optional, TypedDict, Annotated, List, Literal
+from typing import Optional, TypedDict, Annotated, List, Literal, Dict
 import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP, Context
+from fastmcp.resources import TextResource
 from dotenv import load_dotenv
 import pyvisa
 
@@ -311,7 +314,7 @@ class ActionResult(TypedDict):
 class WaveformChannelData(TypedDict):
     """Data for a single channel waveform capture."""
     channel: ChannelNumber
-    raw_data: Annotated[List[int], Field(description="Raw ADC values (16-bit unsigned integers)")]
+    resource_uri: Annotated[str, Field(description="MCP resource URI to fetch the raw waveform data")]
     truncated: Annotated[bool, Field(description="True if any ADC values reached saturation (65535), indicating possible clipping")]
     # Conversion parameters for voltage calculation: voltage = (raw_value - y_origin - y_reference) * y_increment
     y_increment: Annotated[float, Field(description="Vertical increment for raw-to-voltage conversion")]
@@ -469,6 +472,9 @@ def create_server() -> FastMCP:
     # Create oscilloscope instance
     scope = RigolDHO824(resource_string if resource_string else None, timeout)
     
+    # Storage for waveform captures (capture_id -> TextResource)
+    waveform_captures: Dict[str, TextResource] = {}
+    
     # === HELPER FUNCTIONS FOR ENUM MAPPING ===
     
     def map_trigger_status(raw_status: str) -> TriggerStatus:
@@ -606,7 +612,7 @@ def create_server() -> FastMCP:
         Captures data in RAW mode with WORD format (16-bit) for maximum accuracy.
         Reads all available points from oscilloscope memory (up to 50M points depending on settings).
         Uses chunked reading with progress reporting for large data transfers.
-        Returns raw ADC values along with all parameters needed for voltage conversion.
+        Returns MCP resource URIs to fetch the raw ADC values along with all parameters needed for voltage conversion.
         The 'truncated' field indicates if any ADC values reached saturation (65535),
         which suggests the signal may be clipped and vertical scale adjustment may be needed.
         
@@ -617,13 +623,17 @@ def create_server() -> FastMCP:
             channels: List of channel numbers to capture (1-4), defaults to [1]
             
         Returns:
-            List of raw waveform data with conversion parameters for each channel
+            List of resource URIs and metadata with conversion parameters for each channel
         """
         try:
             if not scope.connect():
                 raise Exception("Failed to connect to oscilloscope")
             
+            # Generate unique capture ID based on timestamp
+            capture_id = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # Include milliseconds
+            
             results = []
+            waveform_data = {}  # Will store all channel data
             
             # Stop acquisition once for all channels
             scope.instrument.write(':STOP')
@@ -727,9 +737,27 @@ def create_server() -> FastMCP:
                         message=f"Channel {channel}: Completed ({len(raw_data):,} points)"
                     )
                     
+                    # Store raw data in the waveform_data dictionary
+                    waveform_data[f'channel_{channel}'] = {
+                        'raw_data': raw_data,  # List of raw ADC values
+                        'channel': channel,
+                        'truncated': truncated,
+                        'y_increment': y_increment,
+                        'y_origin': y_origin,
+                        'y_reference': y_reference,
+                        'x_increment': x_increment,
+                        'x_origin': x_origin,
+                        'vertical_scale': vertical_scale,
+                        'vertical_offset': vertical_offset,
+                        'probe_ratio': probe_ratio,
+                        'sample_rate': sample_rate,
+                        'points': len(raw_data)
+                    }
+                    
+                    # Return metadata with resource URI
                     results.append(WaveformChannelData(
                         channel=channel,
-                        raw_data=raw_data,
+                        resource_uri=f'waveform://{capture_id}',  # Single URI for all channels
                         truncated=truncated,
                         y_increment=y_increment,
                         y_origin=y_origin,
@@ -748,6 +776,27 @@ def create_server() -> FastMCP:
                         message=f"Channel {channel}: Error - {str(e)}"
                     )
                     continue
+            
+            # Create and add a resource for this capture
+            if waveform_data:  # Only create resource if we have data
+                # Convert waveform data to JSON string
+                json_data = json.dumps(waveform_data, indent=2)
+                
+                # Create a TextResource for this specific capture
+                waveform_resource = TextResource(
+                    uri=f"waveform://{capture_id}",
+                    name=f"Waveform Capture {capture_id}",
+                    text=json_data,
+                    description=f"Captured waveform data from {len(waveform_data)} channel(s) at {datetime.now().isoformat()}",
+                    mime_type="application/json",
+                    tags={"waveform", "capture", f"channels_{len(waveform_data)}"}
+                )
+                
+                # Add the resource to the MCP server
+                mcp.add_resource(waveform_resource)
+                
+                # Store in our tracking dict (for potential cleanup later)
+                waveform_captures[capture_id] = waveform_resource
             
             return results
             
