@@ -10,6 +10,8 @@ import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP, Context
 from fastmcp.resources import TextResource
+from fastmcp.utilities.types import Image as MCPImage
+from mcp.types import ImageContent
 from dotenv import load_dotenv
 import pyvisa
 
@@ -1658,6 +1660,44 @@ def create_server() -> FastMCP:
             
         except Exception as e:
             raise Exception(f"Error clearing display: {str(e)}") from e
+        finally:
+            scope.disconnect()
+    
+    @mcp.tool
+    async def get_screenshot() -> ImageContent:
+        """
+        Capture a screenshot of the oscilloscope display.
+        
+        Returns a PNG image of the current oscilloscope screen display,
+        including waveforms, measurements, and all visible UI elements.
+        
+        Returns:
+            Screenshot as PNG image
+        """
+        try:
+            if not scope.connect():
+                raise Exception("Failed to connect to oscilloscope")
+            
+            # Set image format to PNG
+            scope.instrument.write(':SAVE:IMAGe:FORMat PNG')
+            
+            # Query the image data
+            # Response format: TMC header + binary PNG data + terminator
+            png_data = scope.instrument.query_binary_values(
+                ':SAVE:IMAGe:DATA?',
+                datatype='B',  # Read as bytes
+                is_big_endian=False,
+                container=bytes  # Return as bytes object
+            )
+            
+            # Create MCP Image object with the PNG data
+            img_obj = MCPImage(data=png_data, format="png")
+            
+            # Convert to ImageContent for MCP
+            return img_obj.to_image_content()
+            
+        except Exception as e:
+            raise Exception(f"Error capturing screenshot: {str(e)}") from e
         finally:
             scope.disconnect()
     
