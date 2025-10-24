@@ -8,6 +8,7 @@ import time
 import json
 from datetime import datetime
 from enum import Enum
+from ftplib import FTP
 from typing import Optional, TypedDict, Annotated, List, Literal
 import numpy as np
 from pydantic import Field
@@ -439,6 +440,25 @@ class WaveformChannelData(TypedDict):
     points: Annotated[int, Field(description="Number of data points")]
 
 
+class WaveformCaptureResult(TypedDict):
+    """Result for waveform capture operations including channel data and optional WFM file.
+
+    The WFM file is provided for archival purposes and scientific validation. Use the channel
+    JSON files for analysis as they contain parsed data with conversion parameters. The WFM
+    file should be preserved as ground truth for future verification or audit trails.
+    """
+
+    channels: Annotated[
+        List[WaveformChannelData], Field(description="List of captured channel data")
+    ]
+    wfm_file_path: Annotated[
+        Optional[str],
+        Field(
+            description="File path to the saved WFM file (contains all channels). This is the raw oscilloscope format intended for archival and verification purposes, not primary analysis. Use channel JSON files for data processing. None if WFM save failed."
+        ),
+    ]
+
+
 # === OSCILLOSCOPE CONNECTION CLASS ===
 
 
@@ -571,6 +591,64 @@ class RigolDHO824:
                 "version": parts[3],
             }
         return None
+
+    def extract_ip_from_resource(self) -> Optional[str]:
+        """
+        Extract IP address from VISA resource string.
+
+        Returns:
+            IP address string or None if not a TCPIP resource
+        """
+        if self.resource_string and "TCPIP" in self.resource_string:
+            # Format: TCPIP0::192.168.44.37::inst0::INSTR
+            parts = self.resource_string.split("::")
+            if len(parts) >= 2:
+                return parts[1]
+        return None
+
+    def download_wfm_via_ftp(
+        self, ip_address: str, scope_filename: str, local_filepath: str
+    ) -> bool:
+        """
+        Download WFM file from oscilloscope via FTP.
+
+        Args:
+            ip_address: IP address of oscilloscope
+            scope_filename: Filename on the scope (without path, assumes C:/)
+            local_filepath: Local file path to save downloaded file
+
+        Returns:
+            True if download successful, False otherwise
+        """
+        try:
+            # Connect to FTP server
+            ftp = FTP()
+            ftp.connect(ip_address, 21, timeout=30)
+            ftp.login("anonymous", "")
+
+            # List files to verify
+            files = ftp.nlst()
+
+            if scope_filename not in files:
+                ftp.quit()
+                return False
+
+            # Download file
+            with open(local_filepath, "wb") as f:
+                ftp.retrbinary(f"RETR {scope_filename}", f.write)
+
+            # Delete file from scope after successful download
+            try:
+                ftp.delete(scope_filename)
+            except:
+                pass  # Some configurations don't allow deletion
+
+            ftp.quit()
+            return True
+
+        except Exception:
+            # FTP failed (not on network, USB connection, etc.) - fail gracefully
+            return False
 
 
 def create_server(temp_dir: str) -> FastMCP:
@@ -726,7 +804,7 @@ def create_server(temp_dir: str) -> FastMCP:
                 description="List of channels to capture (1-4)", examples=[[1], [1, 2]]
             ),
         ] = [1],
-    ) -> List[WaveformChannelData]:
+    ) -> WaveformCaptureResult:
         """
         Capture raw waveform data from specified channels.
 
@@ -734,8 +812,14 @@ def create_server(temp_dir: str) -> FastMCP:
         Reads all available points from oscilloscope memory (up to 50M points depending on settings).
         Uses chunked reading with progress reporting for large data transfers.
         Saves waveform data to temporary JSON files and returns file paths along with all parameters needed for voltage conversion.
+        Also attempts to capture WFM file (contains all channels) via FTP if network connection is available.
         The 'truncated' field indicates if any ADC values reached saturation (65535),
         which suggests the signal may be clipped and vertical scale adjustment may be needed.
+
+        The WFM file is captured for long-term archival and serves as immutable ground truth
+        for scientific reproducibility. Use the channel JSON files for analysis and processing,
+        as they include parsed data and conversion parameters. Preserve the WFM file for future
+        verification, auditing, or reprocessing with different tools.
 
         Voltage conversion formula: voltage = (raw_value - y_origin - y_reference) * y_increment
         Time calculation formula: time = sample_index * x_increment + x_origin
@@ -744,7 +828,7 @@ def create_server(temp_dir: str) -> FastMCP:
             channels: List of channel numbers to capture (1-4), defaults to [1]
 
         Returns:
-            List of file paths and metadata with conversion parameters for each channel
+            Dictionary containing list of channel data with conversion parameters and optional WFM file path
         """
         # Generate unique capture ID based on timestamp
         capture_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
@@ -905,7 +989,59 @@ def create_server(temp_dir: str) -> FastMCP:
                 )
                 continue
 
-        return results
+        # Capture WFM file for future-proofing and scientific accuracy
+        # WFM contains all enabled channels in a single file
+        # Generate random 8-char lowercase hex filename to avoid overwriting
+        wfm_filename = f"{os.urandom(4).hex()}.wfm"
+        wfm_scope_path = f"C:/{wfm_filename}"
+        wfm_local_path = os.path.join(capture_dir, "data.wfm")
+        wfm_saved_path: Optional[str] = None
+
+        # Try to save and download WFM via FTP (gracefully skip if FTP unavailable)
+        try:
+            await ctx.report_progress(
+                progress=1.0, message="Saving WFM file on scope..."
+            )
+
+            # Enable file overwriting
+            scope.instrument.write(":SAVE:OVER ON")
+
+            # Save memory waveform to scope
+            scope.instrument.write(f":SAVE:MEMory:WAVeform {wfm_scope_path}")
+            time.sleep(5)  # Wait for save to complete
+
+            # Check save status
+            scope.instrument.query(":SAVE:STATus?")
+
+            # Try to download via FTP
+            ip_address = scope.extract_ip_from_resource()
+            if ip_address:
+                await ctx.report_progress(
+                    progress=1.0, message="Downloading WFM file via FTP..."
+                )
+                if scope.download_wfm_via_ftp(ip_address, wfm_filename, wfm_local_path):
+                    wfm_saved_path = wfm_local_path
+                    await ctx.report_progress(
+                        progress=1.0, message=f"WFM file saved: {wfm_local_path}"
+                    )
+                else:
+                    await ctx.report_progress(
+                        progress=1.0,
+                        message="WFM download failed (FTP unavailable) - skipping",
+                    )
+            else:
+                await ctx.report_progress(
+                    progress=1.0,
+                    message="WFM download skipped (not a network connection)",
+                )
+
+        except Exception as e:
+            # WFM capture failed - report but don't fail the whole operation
+            await ctx.report_progress(
+                progress=1.0, message=f"WFM capture skipped: {str(e)}"
+            )
+
+        return WaveformCaptureResult(channels=results, wfm_file_path=wfm_saved_path)
 
     # === CHANNEL CONTROL TOOLS ===
 
