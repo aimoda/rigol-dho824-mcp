@@ -751,6 +751,9 @@ def create_server(temp_dir: str) -> FastMCP:
             :-3
         ]  # Include milliseconds
 
+        # Create subdirectory for this capture
+        capture_dir = tempfile.mkdtemp(prefix=f"waveform_capture_{capture_id}_", dir=temp_dir)
+
         results = []
 
         # Stop acquisition once for all channels
@@ -857,7 +860,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
                 # Create waveform data structure
                 waveform_data = {
-                    "raw_data": raw_data,  # List of raw ADC values
                     "channel": channel,
                     "truncated": truncated,
                     "y_increment": y_increment,
@@ -870,27 +872,18 @@ def create_server(temp_dir: str) -> FastMCP:
                     "probe_ratio": probe_ratio,
                     "sample_rate": sample_rate,
                     "points": len(raw_data),
+                    "raw_data": raw_data,  # List of raw ADC values
                 }
 
-                # Save waveform data to temporary JSON file
-                fd, file_path = tempfile.mkstemp(
-                    suffix=f"_ch{channel}.json",
-                    prefix=f"waveform_{capture_id}_",
-                    dir=temp_dir,
-                    text=True,
-                )
-                try:
-                    # Convert waveform data to JSON string and write to file
-                    json_data = json.dumps(waveform_data, indent=2)
-                    os.write(fd, json_data.encode("utf-8"))
-                finally:
-                    os.close(fd)
+                # Save waveform data to JSON file in capture directory
+                file_path = os.path.join(capture_dir, f"ch{channel}.json")
+                with open(file_path, 'w') as f:
+                    json.dump(waveform_data, f, indent=2)
 
                 # Return metadata with file path
                 results.append(
                     WaveformChannelData(
                         channel=channel,
-                        file_path=file_path,
                         truncated=truncated,
                         y_increment=y_increment,
                         y_origin=y_origin,
@@ -902,6 +895,7 @@ def create_server(temp_dir: str) -> FastMCP:
                         probe_ratio=probe_ratio,
                         sample_rate=sample_rate,
                         points=len(raw_data),
+                        file_path=file_path,
                     )
                 )
             except Exception as e:
