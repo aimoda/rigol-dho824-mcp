@@ -3,17 +3,15 @@
 import asyncio
 import functools
 import os
+import tempfile
 import time
 import json
 from datetime import datetime
 from enum import Enum
-from typing import Optional, TypedDict, Annotated, List, Literal, Dict
+from typing import Optional, TypedDict, Annotated, List, Literal
 import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP, Context
-from fastmcp.resources import TextResource
-from fastmcp.utilities.types import Image as MCPImage
-from mcp.types import ImageContent
 from dotenv import load_dotenv
 import pyvisa
 
@@ -394,13 +392,21 @@ class ActionResult(TypedDict):
     action: Annotated[SystemAction, Field(description="Action performed")]
 
 
+class ScreenshotResult(TypedDict):
+    """Result for screenshot capture operations."""
+
+    file_path: Annotated[
+        str, Field(description="File path to the saved screenshot PNG file")
+    ]
+
+
 # Waveform data
 class WaveformChannelData(TypedDict):
     """Data for a single channel waveform capture."""
 
     channel: ChannelNumber
-    resource_uri: Annotated[
-        str, Field(description="MCP resource URI to fetch the raw waveform data")
+    file_path: Annotated[
+        str, Field(description="File path to the saved waveform data JSON file")
     ]
     truncated: Annotated[
         bool,
@@ -567,8 +573,12 @@ class RigolDHO824:
         return None
 
 
-def create_server() -> FastMCP:
-    """Create the FastMCP server with oscilloscope tools."""
+def create_server(temp_dir: str) -> FastMCP:
+    """Create the FastMCP server with oscilloscope tools.
+
+    Args:
+        temp_dir: Path to temporary directory for storing waveforms and screenshots
+    """
 
     # Load environment variables
     load_dotenv()
@@ -582,9 +592,6 @@ def create_server() -> FastMCP:
 
     # Create oscilloscope instance
     scope = RigolDHO824(resource_string if resource_string else None, timeout)
-
-    # Storage for waveform captures (capture_id -> TextResource)
-    waveform_captures: Dict[str, TextResource] = {}
 
     # === DECORATOR FOR SCOPE CONNECTION AND LOCKING ===
 
@@ -726,7 +733,7 @@ def create_server() -> FastMCP:
         Captures data in RAW mode with WORD format (16-bit) for maximum accuracy.
         Reads all available points from oscilloscope memory (up to 50M points depending on settings).
         Uses chunked reading with progress reporting for large data transfers.
-        Returns MCP resource URIs to fetch the raw ADC values along with all parameters needed for voltage conversion.
+        Saves waveform data to temporary JSON files and returns file paths along with all parameters needed for voltage conversion.
         The 'truncated' field indicates if any ADC values reached saturation (65535),
         which suggests the signal may be clipped and vertical scale adjustment may be needed.
 
@@ -737,7 +744,7 @@ def create_server() -> FastMCP:
             channels: List of channel numbers to capture (1-4), defaults to [1]
 
         Returns:
-            List of resource URIs and metadata with conversion parameters for each channel
+            List of file paths and metadata with conversion parameters for each channel
         """
         # Generate unique capture ID based on timestamp
         capture_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
@@ -745,7 +752,6 @@ def create_server() -> FastMCP:
         ]  # Include milliseconds
 
         results = []
-        waveform_data = {}  # Will store all channel data
 
         # Stop acquisition once for all channels
         scope.instrument.write(":STOP")
@@ -849,8 +855,8 @@ def create_server() -> FastMCP:
                     message=f"Channel {channel}: Completed ({len(raw_data):,} points)",
                 )
 
-                # Store raw data in the waveform_data dictionary
-                waveform_data[f"channel_{channel}"] = {
+                # Create waveform data structure
+                waveform_data = {
                     "raw_data": raw_data,  # List of raw ADC values
                     "channel": channel,
                     "truncated": truncated,
@@ -866,11 +872,25 @@ def create_server() -> FastMCP:
                     "points": len(raw_data),
                 }
 
-                # Return metadata with resource URI
+                # Save waveform data to temporary JSON file
+                fd, file_path = tempfile.mkstemp(
+                    suffix=f"_ch{channel}.json",
+                    prefix=f"waveform_{capture_id}_",
+                    dir=temp_dir,
+                    text=True,
+                )
+                try:
+                    # Convert waveform data to JSON string and write to file
+                    json_data = json.dumps(waveform_data, indent=2)
+                    os.write(fd, json_data.encode("utf-8"))
+                finally:
+                    os.close(fd)
+
+                # Return metadata with file path
                 results.append(
                     WaveformChannelData(
                         channel=channel,
-                        resource_uri=f"waveform://{capture_id}",  # Single URI for all channels
+                        file_path=file_path,
                         truncated=truncated,
                         y_increment=y_increment,
                         y_origin=y_origin,
@@ -890,27 +910,6 @@ def create_server() -> FastMCP:
                     message=f"Channel {channel}: Error - {str(e)}",
                 )
                 continue
-
-        # Create and add a resource for this capture
-        if waveform_data:  # Only create resource if we have data
-            # Convert waveform data to JSON string
-            json_data = json.dumps(waveform_data, indent=2)
-
-            # Create a TextResource for this specific capture
-            waveform_resource = TextResource(
-                uri=f"waveform://{capture_id}",
-                name=f"Waveform Capture {capture_id}",
-                text=json_data,
-                description=f"Captured waveform data from {len(waveform_data)} channel(s) at {datetime.now().isoformat()}",
-                mime_type="application/json",
-                tags={"waveform", "capture", f"channels_{len(waveform_data)}"},
-            )
-
-            # Add the resource to the MCP server
-            mcp.add_resource(waveform_resource)
-
-            # Store in our tracking dict (for potential cleanup later)
-            waveform_captures[capture_id] = waveform_resource
 
         return results
 
@@ -1571,15 +1570,15 @@ def create_server() -> FastMCP:
 
     @mcp.tool
     @with_scope_connection
-    async def get_screenshot() -> ImageContent:
+    async def get_screenshot() -> ScreenshotResult:
         """
         Capture a screenshot of the oscilloscope display.
 
-        Returns a PNG image of the current oscilloscope screen display,
+        Saves a PNG image of the current oscilloscope screen display to a temporary file,
         including waveforms, measurements, and all visible UI elements.
 
         Returns:
-            Screenshot as PNG image
+            Screenshot file path
         """
         # Set image format to PNG
         scope.instrument.write(":SAVE:IMAGe:FORMat PNG")
@@ -1593,11 +1592,20 @@ def create_server() -> FastMCP:
             container=bytes,  # Return as bytes object
         )
 
-        # Create MCP Image object with the PNG data
-        img_obj = MCPImage(data=png_data, format="png")
+        # Save screenshot to temporary PNG file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        fd, file_path = tempfile.mkstemp(
+            suffix=".png",
+            prefix=f"screenshot_{timestamp}_",
+            dir=temp_dir,
+        )
+        try:
+            # Write PNG data to file
+            os.write(fd, png_data)
+        finally:
+            os.close(fd)
 
-        # Convert to ImageContent for MCP
-        return img_obj.to_image_content()
+        return ScreenshotResult(file_path=file_path)
 
     return mcp
 
@@ -1624,15 +1632,17 @@ def main():
 
     args = parser.parse_args()
 
-    # Create the server
-    mcp = create_server()
+    # Create temporary directory with automatic cleanup on exit
+    with tempfile.TemporaryDirectory(prefix="rigol_dho824_") as temp_dir:
+        # Create the server
+        mcp = create_server(temp_dir)
 
-    if args.http:
-        # Run with HTTP transport
-        mcp.run(transport="http", host=args.host, port=args.port, path=args.path)
-    else:
-        # Default to stdio transport
-        mcp.run()
+        if args.http:
+            # Run with HTTP transport
+            mcp.run(transport="http", host=args.host, port=args.port, path=args.path)
+        else:
+            # Default to stdio transport
+            mcp.run()
 
 
 if __name__ == "__main__":
