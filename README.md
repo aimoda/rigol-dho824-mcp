@@ -19,6 +19,16 @@ pip install -e .
 pip install -r requirements.txt
 ```
 
+### Add to Claude Code
+
+After completing the setup steps above, add the MCP server to Claude Code:
+
+```bash
+claude mcp add --scope user rigol-dho824 -- <path-to-this-repo>/venv/bin/rigol-dho824-mcp
+```
+
+Replace `<path-to-this-repo>` with the actual path to this repository.
+
 ## Configuration
 
 The server can be configured using environment variables. Create a `.env` file from the example:
