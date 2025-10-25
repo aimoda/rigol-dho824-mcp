@@ -2,6 +2,8 @@
 
 import asyncio
 import functools
+import hashlib
+import io
 import os
 import tempfile
 import time
@@ -1493,7 +1495,10 @@ class RigolDHO824:
         self, ip_address: str, scope_filename: str, local_filepath: str
     ) -> bool:
         """
-        Download file from oscilloscope via FTP.
+        Download file from oscilloscope via FTP with hash verification.
+
+        Downloads the file twice to memory buffers and verifies MD5 hashes match
+        before writing to disk. This ensures data integrity during transfer.
 
         Args:
             ip_address: IP address of oscilloscope
@@ -1501,7 +1506,7 @@ class RigolDHO824:
             local_filepath: Local file path to save downloaded file
 
         Returns:
-            True if download successful, False otherwise
+            True if download successful and hashes match, False otherwise
         """
         try:
             # Connect to FTP server
@@ -1516,11 +1521,31 @@ class RigolDHO824:
                 ftp.quit()
                 return False
 
-            # Download file
-            with open(local_filepath, "wb") as f:
-                ftp.retrbinary(f"RETR {scope_filename}", f.write)
+            # First download to memory
+            buffer1 = io.BytesIO()
+            ftp.retrbinary(f"RETR {scope_filename}", buffer1.write)
+            buffer1.seek(0)
+            hash1 = hashlib.md5(buffer1.read()).hexdigest()
+            buffer1.seek(0)
 
-            # Delete file from scope after successful download
+            # Second download to memory
+            buffer2 = io.BytesIO()
+            ftp.retrbinary(f"RETR {scope_filename}", buffer2.write)
+            buffer2.seek(0)
+            hash2 = hashlib.md5(buffer2.read()).hexdigest()
+            buffer2.seek(0)
+
+            # Verify hashes match
+            if hash1 != hash2:
+                # Hashes don't match - corruption detected, don't delete from scope
+                ftp.quit()
+                return False
+
+            # Hashes match - write to disk
+            with open(local_filepath, "wb") as f:
+                f.write(buffer1.read())
+
+            # Delete file from scope after successful download and verification
             try:
                 ftp.delete(scope_filename)
             except:
