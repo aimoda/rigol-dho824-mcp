@@ -62,3 +62,70 @@ pyright
 # Or if installed in venv
 ./venv/bin/pyright
 ```
+
+## Avoiding Type Annotation Duplication
+
+**IMPORTANT**: Always reuse existing type aliases instead of duplicating `Annotated[type, Field(...)]` patterns.
+
+### Before Adding New Type Annotations
+
+1. **Search for existing type aliases** - Check the type alias sections at the top of `server.py` (currently lines 30-110) for reusable types
+2. **Look for similar patterns** - Search for the description text you're about to use (e.g., `grep "Trigger level in volts"`)
+3. **Reuse when possible** - If an existing type alias matches your needs, use it
+
+### When to Create New Type Aliases
+
+Create a new type alias if:
+- The same `Annotated[type, Field(description=...)]` pattern will be used **2 or more times**
+- The field represents a common concept across multiple tools/results
+- The description and type are semantically identical
+
+### How to Create Type Aliases
+
+```python
+# GOOD: Create reusable type aliases
+TriggerLevelField = Annotated[float, Field(description="Trigger level in volts")]
+UpperTimeLimitField = Annotated[float, Field(description="Upper time limit in seconds")]
+
+# Then use them everywhere:
+class SomeResult(TypedDict):
+    level: TriggerLevelField
+    time: UpperTimeLimitField
+
+@server.tool
+async def some_tool(level: TriggerLevelField, time: UpperTimeLimitField):
+    ...
+```
+
+```python
+# BAD: Duplicating the same annotation
+class Result1(TypedDict):
+    level: Annotated[float, Field(description="Trigger level in volts")]
+
+class Result2(TypedDict):
+    level: Annotated[float, Field(description="Trigger level in volts")]  # Duplicate!
+
+@server.tool
+async def tool1(level: Annotated[float, Field(description="Trigger level in volts")]):  # Duplicate!
+    ...
+```
+
+### Organizing Type Aliases
+
+Group related type aliases together with clear comments:
+
+```python
+# Voltage-related fields
+TriggerLevelField = Annotated[...]
+UpperVoltageLevelField = Annotated[...]
+
+# Time-related fields
+UpperTimeLimitField = Annotated[...]
+IdleTimeField = Annotated[...]
+```
+
+### Naming Conventions
+
+- Use descriptive names ending in `Field` for field-specific types
+- Use semantic names that indicate the field's purpose (e.g., `TriggerLevelField` not `FloatField1`)
+- Keep names concise but clear
