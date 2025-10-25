@@ -435,6 +435,39 @@ class TriggerSlopeResult(TypedDict):
     ]
 
 
+class TriggerCouplingResult(TypedDict):
+    """Result for trigger coupling settings."""
+
+    trigger_coupling: Annotated[
+        TriggerCouplingType, Field(description="Trigger coupling mode")
+    ]
+
+
+class TriggerSweepResult(TypedDict):
+    """Result for trigger sweep mode settings."""
+
+    trigger_sweep: Annotated[
+        TriggerSweep, Field(description="Trigger sweep mode")
+    ]
+
+
+class TriggerHoldoffResult(TypedDict):
+    """Result for trigger holdoff settings."""
+
+    holdoff_time: Annotated[float, Field(description="Trigger holdoff time in seconds")]
+    holdoff_time_str: Annotated[
+        str, Field(description="Human-readable holdoff time")
+    ]
+
+
+class TriggerNoiseRejectResult(TypedDict):
+    """Result for trigger noise rejection settings."""
+
+    noise_reject_enabled: Annotated[
+        bool, Field(description="Whether noise rejection is enabled")
+    ]
+
+
 # Action results
 class ActionResult(TypedDict):
     """Result for simple action operations."""
@@ -1718,6 +1751,175 @@ def create_server(temp_dir: str) -> FastMCP:
         result_slope = map_trigger_slope_response(actual_slope)
 
         return TriggerSlopeResult(trigger_slope=result_slope)
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_trigger_coupling(
+        coupling: Annotated[
+            TriggerCouplingType,
+            Field(description="Trigger coupling mode: AC, DC, LFReject, or HFReject"),
+        ]
+    ) -> TriggerCouplingResult:
+        """
+        Configure trigger coupling mode to filter signal components before triggering.
+
+        Trigger coupling determines what signal components are passed to the trigger circuit:
+        - **AC**: Blocks DC component, triggers only on AC signal
+        - **DC**: Includes both AC and DC components (full signal)
+        - **LFReject**: Low frequency rejection - blocks signals <8 kHz
+        - **HFReject**: High frequency rejection - blocks signals >150 kHz
+
+        Args:
+            coupling: Trigger coupling mode (AC, DC, LFReject, or HFReject)
+
+        Returns:
+            Current trigger coupling setting
+        """
+        # Map user-friendly coupling to SCPI format
+        scope.instrument.write(f":TRIG:COUP {coupling}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_coupling = scope.instrument.query(":TRIG:COUP?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        # Map SCPI response back to user-friendly format
+        # DHO800 may return abbreviated forms
+        coupling_map = {
+            "AC": "AC",
+            "DC": "DC",
+            "LFREJ": "LFReject",
+            "LFR": "LFReject",
+            "HFREJ": "HFReject",
+            "HFR": "HFReject",
+        }
+        result_coupling = coupling_map.get(actual_coupling.upper(), coupling)
+
+        return TriggerCouplingResult(trigger_coupling=result_coupling)  # type: ignore[typeddict-item]
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_trigger_sweep(
+        sweep_mode: Annotated[
+            TriggerSweep,
+            Field(description="Trigger sweep mode: AUTO, NORMAL, or SINGLE"),
+        ]
+    ) -> TriggerSweepResult:
+        """
+        Configure trigger sweep mode to control acquisition behavior.
+
+        Trigger sweep mode controls how the oscilloscope responds to trigger events:
+        - **AUTO**: Triggers automatically even without valid trigger event (for always-on display)
+        - **NORMAL**: Only triggers on valid trigger events (for stable triggering)
+        - **SINGLE**: Captures one trigger event then stops (for single-shot capture)
+
+        Note: This is different from :RUN/:STOP/:SING commands which control acquisition state.
+        Sweep mode controls *how* the scope responds to triggers, while RUN/STOP/SINGLE
+        control *whether* the scope is acquiring.
+
+        Args:
+            sweep_mode: Trigger sweep mode (AUTO, NORMAL, or SINGLE)
+
+        Returns:
+            Current sweep mode setting
+        """
+        # TriggerSweep enum values map directly to SCPI format
+        scope.instrument.write(f":TRIG:SWE {sweep_mode.value}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_sweep = scope.instrument.query(":TRIG:SWE?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        # Map response back to enum
+        sweep_map = {
+            "AUTO": TriggerSweep.AUTO,
+            "NORM": TriggerSweep.NORMAL,
+            "NORMAL": TriggerSweep.NORMAL,
+            "SING": TriggerSweep.SINGLE,
+            "SINGLE": TriggerSweep.SINGLE,
+        }
+        result_sweep = sweep_map.get(actual_sweep.upper(), sweep_mode)
+
+        return TriggerSweepResult(trigger_sweep=result_sweep)
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_trigger_holdoff(
+        holdoff_time: Annotated[
+            float,
+            Field(description="Trigger holdoff time in seconds (16ns to 10s)"),
+        ]
+    ) -> TriggerHoldoffResult:
+        """
+        Set trigger holdoff time to prevent re-triggering on same event.
+
+        Holdoff creates a "dead time" after each trigger where the scope ignores new trigger
+        events. This is essential for:
+        - Ignoring ringing or oscillations after trigger point
+        - Triggering on first pulse in a burst (ignore subsequent pulses)
+        - Stable triggering on complex waveforms with multiple edges
+
+        Args:
+            holdoff_time: Holdoff duration in seconds (minimum: 16ns, maximum: 10s)
+
+        Returns:
+            Current holdoff time in seconds with human-readable format
+        """
+        # Validate range
+        if holdoff_time < 16e-9 or holdoff_time > 10:
+            raise ValueError(
+                f"Holdoff time must be between 16ns and 10s, got {holdoff_time}s"
+            )
+
+        scope.instrument.write(f":TRIG:HOLD {holdoff_time}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_holdoff = float(scope.instrument.query(":TRIG:HOLD?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Convert to human-readable format
+        if actual_holdoff >= 1:
+            holdoff_str = f"{actual_holdoff:.3f} s"
+        elif actual_holdoff >= 1e-3:
+            holdoff_str = f"{actual_holdoff*1e3:.3f} ms"
+        elif actual_holdoff >= 1e-6:
+            holdoff_str = f"{actual_holdoff*1e6:.3f} μs"
+        else:
+            holdoff_str = f"{actual_holdoff*1e9:.3f} ns"
+
+        return TriggerHoldoffResult(
+            holdoff_time=actual_holdoff, holdoff_time_str=holdoff_str
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_trigger_noise_reject(
+        enabled: Annotated[
+            bool, Field(description="Enable/disable trigger noise rejection")
+        ]
+    ) -> TriggerNoiseRejectResult:
+        """
+        Enable/disable trigger noise rejection filter.
+
+        When enabled, adds hysteresis to the trigger level to prevent false triggers from
+        noise. This increases trigger stability but may reduce sensitivity to small signals.
+
+        Noise rejection is useful when:
+        - Triggering on noisy signals
+        - Experiencing false triggers due to signal noise
+        - Needing more stable trigger behavior
+
+        Trade-off: Improved stability vs. reduced sensitivity to genuine small signals.
+
+        Args:
+            enabled: True to enable noise rejection, False to disable
+
+        Returns:
+            Current noise reject status
+        """
+        state = "ON" if enabled else "OFF"
+        scope.instrument.write(f":TRIG:NREJ {state}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_state = int(scope.instrument.query(":TRIG:NREJ?"))  # type: ignore[reportAttributeAccessIssue]
+
+        return TriggerNoiseRejectResult(noise_reject_enabled=bool(actual_state))
 
     # === MEMORY & ACQUISITION SETTINGS ===
 
