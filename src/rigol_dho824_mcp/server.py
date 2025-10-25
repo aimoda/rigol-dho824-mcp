@@ -2300,32 +2300,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Returns:
             Vertical scale setting
         """
-        # Valid scales follow 1-2-5 sequence
-        valid_scales = [
-            1e-3,
-            2e-3,
-            5e-3,  # mV range
-            1e-2,
-            2e-2,
-            5e-2,
-            1e-1,
-            2e-1,
-            5e-1,
-            1,
-            2,
-            5,  # V range
-            10,
-            20,
-            50,
-            100,
-        ]
-
-        # Find closest valid scale
-        scale = vertical_scale
-        if scale not in valid_scales:
-            scale = valid_scales[np.argmin(np.abs(np.array(valid_scales) - scale))]
-
-        scope.instrument.write(f":CHAN{channel}:SCAL {scale}")  # type: ignore[reportAttributeAccessIssue]
+        # Let the oscilloscope handle validation based on vernier mode
+        # When vernier is OFF: snaps to 1-2-5 sequence
+        # When vernier is ON: accepts any value within range
+        scope.instrument.write(f":CHAN{channel}:SCAL {vertical_scale}")  # type: ignore[reportAttributeAccessIssue]
 
         # Verify the setting
         actual_scale = float(scope.instrument.query(f":CHAN{channel}:SCAL?"))  # type: ignore[reportAttributeAccessIssue]
