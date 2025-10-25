@@ -632,7 +632,7 @@ class DVMStatusResult(TypedDict):
     """Result for DVM status queries."""
 
     enabled: Annotated[bool, Field(description="Whether DVM is enabled")]
-    source: Annotated[str, Field(description="SCPI source channel (e.g., 'CHAN1')")]
+    source: Annotated[str, Field(description="Source channel identifier (e.g., 'CHAN1')")]
     channel: ChannelNumber
     mode: Annotated[str, Field(description="User-friendly mode name")]
     mode_description: Annotated[str, Field(description="Human-readable mode description")]
@@ -646,7 +646,7 @@ class DVMConfigureResult(TypedDict):
     """Result for DVM configuration operations."""
 
     enabled: Annotated[bool, Field(description="Whether DVM is enabled")]
-    source: Annotated[str, Field(description="SCPI source channel (e.g., 'CHAN1')")]
+    source: Annotated[str, Field(description="Source channel identifier (e.g., 'CHAN1')")]
     channel: ChannelNumber
     mode: Annotated[str, Field(description="User-friendly mode name")]
     mode_description: Annotated[str, Field(description="Human-readable mode description")]
@@ -2184,15 +2184,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Detects pulses narrower/wider than specified limits or within a range.
         Essential for finding glitches, detecting timeouts, and validating pulse widths.
 
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE PULSe
-        - :TRIGger:PULSe:SOURce <channel>
-        - :TRIGger:PULSe:WHEN {GREater|LESS|WITHin}
-        - :TRIGger:PULSe:UWIDth <time>
-        - :TRIGger:PULSe:LWIDth <time> (for WITHIN)
-        - :TRIGger:PULSe:POLarity {POSitive|NEGative}
-        - :TRIGger:PULSe:LEVel <voltage>
-
         Args:
             channel: Source channel (1-4)
             polarity: Pulse polarity - "POSITIVE" or "NEGATIVE"
@@ -2302,17 +2293,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Detects edges that are too fast, too slow, or within timing range.
         Essential for signal integrity analysis and validating rise/fall time specifications.
-
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE SLOPe
-        - :TRIGger:SLOPe:SOURce <channel>
-        - :TRIGger:SLOPe:WHEN {GREater|LESS|WITHin}
-        - :TRIGger:SLOPe:TUPPer <time>
-        - :TRIGger:SLOPe:TLOWer <time> (for WITHIN)
-        - :TRIGger:SLOPe:POLarity {POSitive|NEGative}
-        - :TRIGger:SLOPe:ALEVel <voltage>
-        - :TRIGger:SLOPe:BLEVel <voltage>
-        - :TRIGger:SLOPe:WINDow {TA|TB|TAB}
 
         Args:
             channel: Source channel (1-4)
@@ -2431,15 +2411,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers on video synchronization pulses for analyzing video signals.
 
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE VIDeo
-        - :TRIGger:VIDeo:SOURce <channel>
-        - :TRIGger:VIDeo:POLarity {POSitive|NEGative}
-        - :TRIGger:VIDeo:MODE {ODDfield|EVENfield|LINE|ALINes}
-        - :TRIGger:VIDeo:LINE <line_number> (for LINE mode)
-        - :TRIGger:VIDeo:STANdard {PALSecam|NTSC|480P|576P}
-        - :TRIGger:VIDeo:LEVel <voltage>
-
         Args:
             channel: Source channel (1-4)
             polarity: Sync polarity - "POSITIVE" or "NEGATIVE"
@@ -2540,11 +2511,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers when multi-channel logic pattern is met. Combines up to 4 channels with AND logic.
 
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE PATTern
-        - :TRIGger:PATTern:PATTern <ch1>,<ch2>,<ch3>,<ch4>
-        - :TRIGger:PATTern:LEVel<n> <voltage> (for each channel)
-
         Pattern values per channel:
         - H: High (above threshold)
         - L: Low (below threshold)
@@ -2628,16 +2594,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers on runt pulses - pulses that cross one threshold but fail to reach
         the other threshold before returning. Essential for signal integrity analysis.
-
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE RUNT
-        - :TRIGger:RUNT:SOURce <channel>
-        - :TRIGger:RUNT:POLarity {POSitive|NEGative}
-        - :TRIGger:RUNT:WHEN {GREater|LESS|WITHin}
-        - :TRIGger:RUNT:UWIDth <time>
-        - :TRIGger:RUNT:LWIDth <time>
-        - :TRIGger:RUNT:ALEVel <voltage>
-        - :TRIGger:RUNT:BLEVel <voltage>
 
         Args:
             channel: Source channel (1-4)
@@ -2729,13 +2685,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Triggers when signal remains idle (no edge) for specified duration.
         Essential for detecting bus stalls and protocol timeouts.
 
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE TIMeout
-        - :TRIGger:TIMeout:SOURce <channel>
-        - :TRIGger:TIMeout:SLOPe {POSitive|NEGative}
-        - :TRIGger:TIMeout:TIMeout <time>
-        - :TRIGger:TIMeout:LEVel <voltage>
-
         Args:
             channel: Source channel (1-4)
             slope: Edge to start timeout counter - "POSITIVE" or "NEGATIVE"
@@ -2809,15 +2758,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Configure duration trigger for pattern that persists for specific duration.
 
         Triggers on pattern that persists for specific duration.
-
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE DURation
-        - :TRIGger:DURation:SOURce <channel>
-        - :TRIGger:DURation:TYPE {GREater|LESS|WITHin}
-        - :TRIGger:DURation:WHEN {GREater|LESS|WITHin}
-        - :TRIGger:DURation:UWIDth <time>
-        - :TRIGger:DURation:LWIDth <time>
-        - :TRIGger:DURation:LEVel <voltage>
 
         Args:
             channel: Source channel (1-4)
@@ -2899,17 +2839,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers on setup/hold time violations between data and clock signals.
         Essential for verifying timing relationships in synchronous interfaces.
-
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE SHOLd
-        - :TRIGger:SHOLd:DSrc <channel>
-        - :TRIGger:SHOLd:CSrc <channel>
-        - :TRIGger:SHOLd:SLOPe {POSitive|NEGative}
-        - :TRIGger:SHOLd:PATTern {H|L}
-        - :TRIGger:SHOLd:STIMe <time>
-        - :TRIGger:SHOLd:HTIMe <time>
-        - :TRIGger:SHOLd:DLEVel <voltage>
-        - :TRIGger:SHOLd:CLEVel <voltage>
 
         Args:
             data_channel: Data signal channel (1-4)
@@ -3001,14 +2930,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Triggers on the Nth edge after an idle period. Useful for triggering
         inside burst transmissions and skipping preamble/sync edges.
 
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE NEDGe
-        - :TRIGger:NEDGe:SOURce <channel>
-        - :TRIGger:NEDGe:SLOPe {POSitive|NEGative}
-        - :TRIGger:NEDGe:IDLE <time>
-        - :TRIGger:NEDGe:EDGE <count>
-        - :TRIGger:NEDGe:LEVel <voltage>
-
         Args:
             channel: Source channel (1-4)
             slope: Edge direction to count - "POSITIVE" or "NEGATIVE"
@@ -3094,15 +3015,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers when signal enters or exits voltage window between two thresholds.
         Essential for power supply regulation analysis and detecting over/under voltage.
-
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE WINDows
-        - :TRIGger:WINDows:SOURce <channel>
-        - :TRIGger:WINDows:SLOPe {POSitive|NEGative}
-        - :TRIGger:WINDows:POSition {EXIT|ENTER|TIME}
-        - :TRIGger:WINDows:TIME <time> (for TIME position)
-        - :TRIGger:WINDows:ALEVel <voltage>
-        - :TRIGger:WINDows:BLEVel <voltage>
 
         Args:
             channel: Source channel (1-4)
@@ -3206,18 +3118,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers on time delay between two signal edges. Essential for measuring
         propagation delays, detecting timing skew, and verifying signal sequencing.
-
-        Complete SCPI sequence executed:
-        - :TRIGger:MODE DELay
-        - :TRIGger:DELay:SA <channel>
-        - :TRIGger:DELay:SB <channel>
-        - :TRIGger:DELay:SLOPea {POSitive|NEGative}
-        - :TRIGger:DELay:SLOPeb {POSitive|NEGative}
-        - :TRIGger:DELay:TYPe {GREater|LESS|WITHin}
-        - :TRIGger:DELay:TUPPer <time>
-        - :TRIGger:DELay:TLOWer <time> (for WITHIN)
-        - :TRIGger:DELay:LEVela <voltage>
-        - :TRIGger:DELay:LEVelb <voltage>
 
         Args:
             source_a_channel: First signal channel (1-4)
