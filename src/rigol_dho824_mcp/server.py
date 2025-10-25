@@ -189,6 +189,55 @@ class MemoryDepth(str, Enum):
     M50 = "50M"
 
 
+class DVMMode(str, Enum):
+    """DVM measurement modes."""
+
+    AC_RMS = "ACRM"  # AC RMS (DC component removed)
+    DC = "DC"  # DC average value
+    AC_DC_RMS = "DCRM"  # AC+DC RMS (true RMS)
+
+    @classmethod
+    def from_user_input(cls, mode: str) -> "DVMMode":
+        """Convert user-friendly input to DVMMode enum.
+
+        Accepts various formats: AC_RMS, AC RMS, ACRM, etc.
+        """
+        mode_map = {
+            "AC_RMS": cls.AC_RMS,
+            "AC RMS": cls.AC_RMS,
+            "ACRM": cls.AC_RMS,
+            "DC": cls.DC,
+            "AC+DC_RMS": cls.AC_DC_RMS,
+            "AC+DC RMS": cls.AC_DC_RMS,
+            "DCRM": cls.AC_DC_RMS,
+        }
+        normalized = mode.upper().replace(" ", "_")
+        if normalized not in mode_map:
+            raise ValueError(
+                f"Invalid DVM mode: {mode}. "
+                f"Must be one of: AC_RMS, DC, AC+DC_RMS"
+            )
+        return mode_map[normalized]
+
+    def to_user_name(self) -> str:
+        """Convert SCPI mode to user-friendly name."""
+        names = {
+            self.AC_RMS: "AC_RMS",
+            self.DC: "DC",
+            self.AC_DC_RMS: "AC+DC_RMS",
+        }
+        return names[self]
+
+    def description(self) -> str:
+        """Get human-readable description."""
+        descriptions = {
+            self.AC_RMS: "AC RMS (DC component removed)",
+            self.DC: "DC average value",
+            self.AC_DC_RMS: "AC+DC RMS (true RMS)",
+        }
+        return descriptions[self]
+
+
 # === TYPE DEFINITIONS FOR RESULTS ===
 
 
@@ -459,6 +508,36 @@ class WaveformCaptureResult(TypedDict):
     ]
 
 
+# DVM results
+class DVMStatusResult(TypedDict):
+    """Result for DVM status queries."""
+
+    enabled: Annotated[bool, Field(description="Whether DVM is enabled")]
+    source: Annotated[str, Field(description="SCPI source channel (e.g., 'CHAN1')")]
+    channel: ChannelNumber
+    mode: Annotated[str, Field(description="User-friendly mode name")]
+    mode_description: Annotated[str, Field(description="Human-readable mode description")]
+    current_reading: Annotated[
+        Optional[float], Field(description="Current voltage reading in volts (only present if enabled)")
+    ]
+    unit: Annotated[str, Field(description="Measurement unit (V)")]
+
+
+class DVMConfigureResult(TypedDict):
+    """Result for DVM configuration operations."""
+
+    enabled: Annotated[bool, Field(description="Whether DVM is enabled")]
+    source: Annotated[str, Field(description="SCPI source channel (e.g., 'CHAN1')")]
+    channel: ChannelNumber
+    mode: Annotated[str, Field(description="User-friendly mode name")]
+    mode_description: Annotated[str, Field(description="Human-readable mode description")]
+    current_reading: Annotated[
+        Optional[float], Field(description="Current voltage reading in volts (only present if enabled)")
+    ]
+    unit: Annotated[str, Field(description="Measurement unit (V)")]
+    message: Annotated[str, Field(description="Configuration status message")]
+
+
 # === OSCILLOSCOPE CONNECTION CLASS ===
 
 
@@ -650,6 +729,52 @@ class RigolDHO824:
             # FTP failed (not on network, USB connection, etc.) - fail gracefully
             return False
 
+    def dvm_enable(self, enabled: bool) -> None:
+        """Enable or disable the Digital Voltmeter."""
+        cmd = f":DVM:ENABle {'ON' if enabled else 'OFF'}"
+        self.instrument.write(cmd)
+
+    def dvm_is_enabled(self) -> bool:
+        """Query if DVM is enabled."""
+        response = self.instrument.query(":DVM:ENABle?")
+        return response.strip() == "1"
+
+    def dvm_set_source(self, channel: int) -> None:
+        """Set DVM source channel (1-4)."""
+        if channel not in [1, 2, 3, 4]:
+            raise ValueError(f"Channel must be 1-4, got {channel}")
+        cmd = f":DVM:SOURce CHANnel{channel}"
+        self.instrument.write(cmd)
+
+    def dvm_get_source(self) -> str:
+        """Query DVM source channel.
+
+        Returns:
+            SCPI channel name (e.g., 'CHAN1', 'CHAN2')
+        """
+        response = self.instrument.query(":DVM:SOURce?")
+        return response.strip()
+
+    def dvm_set_mode(self, mode: DVMMode) -> None:
+        """Set DVM measurement mode."""
+        cmd = f":DVM:MODE {mode.value}"
+        self.instrument.write(cmd)
+
+    def dvm_get_mode(self) -> DVMMode:
+        """Query DVM measurement mode."""
+        response = self.instrument.query(":DVM:MODE?")
+        mode_str = response.strip()
+        return DVMMode(mode_str)
+
+    def dvm_get_current_reading(self) -> float:
+        """Get current DVM voltage reading.
+
+        Returns:
+            Voltage reading in volts
+        """
+        response = self.instrument.query(":DVM:CURRent?")
+        return float(response.strip())
+
 
 def create_server(temp_dir: str) -> FastMCP:
     """Create the FastMCP server with oscilloscope tools.
@@ -752,6 +877,16 @@ def create_server(temp_dir: str) -> FastMCP:
             if raw_mode == tm.value or raw_mode == tm.value[:4].upper():
                 return tm
         return TriggerMode.EDGE
+
+    def _parse_channel_from_scpi(scpi_source: str) -> int:
+        """Convert SCPI source (e.g., 'CHAN1') to channel number (1)."""
+        channel_map = {
+            "CHAN1": 1,
+            "CHAN2": 2,
+            "CHAN3": 3,
+            "CHAN4": 4,
+        }
+        return channel_map.get(scpi_source, 1)
 
     # === IDENTITY TOOLS ===
 
@@ -1744,6 +1879,123 @@ def create_server(temp_dir: str) -> FastMCP:
             os.close(fd)
 
         return ScreenshotResult(file_path=file_path)
+
+    # === DVM TOOLS ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_dvm(
+        channel: Annotated[Optional[ChannelNumber], Field(description="Channel number (1-4), optional")] = None,
+        mode: Annotated[
+            Optional[str],
+            Field(
+                description="Measurement mode, optional. One of: 'AC_RMS' (RMS value with DC component removed), 'DC' (Average/DC value), 'AC+DC_RMS' (True RMS including both AC and DC components)"
+            ),
+        ] = None,
+        enabled: Annotated[Optional[bool], Field(description="Enable/disable DVM, optional")] = None,
+    ) -> DVMConfigureResult:
+        """
+        Configure Digital Voltmeter settings.
+
+        Change any combination of DVM settings in a single call. Omitted parameters
+        remain unchanged.
+
+        The DVM provides 4-digit voltage measurements asynchronously from the
+        main acquisition system. Once enabled, it continuously measures even
+        when the scope is stopped. Measurements work even if the channel is
+        not enabled on the display.
+
+        Args:
+            channel: Channel number (1-4), optional
+            mode: Measurement mode, optional. One of:
+                - 'AC_RMS': RMS value with DC component removed
+                - 'DC': Average (DC) value
+                - 'AC+DC_RMS': True RMS including both AC and DC components
+            enabled: Enable/disable DVM, optional
+
+        Returns:
+            Dictionary with complete DVM status after applying changes
+        """
+        # Apply changes in order: channel, mode, enabled
+        if channel is not None:
+            scope.dvm_set_source(channel)
+
+        if mode is not None:
+            # Convert user-friendly mode to DVMMode enum
+            dvm_mode = DVMMode.from_user_input(mode)
+            scope.dvm_set_mode(dvm_mode)
+
+        if enabled is not None:
+            scope.dvm_enable(enabled)
+
+        # Query all settings to get final state
+        is_enabled = scope.dvm_is_enabled()
+        scpi_source = scope.dvm_get_source()
+        channel_num = _parse_channel_from_scpi(scpi_source)
+        dvm_mode = scope.dvm_get_mode()
+
+        # Query current reading if enabled
+        current_reading: Optional[float] = None
+        if is_enabled:
+            current_reading = scope.dvm_get_current_reading()
+
+        # Build status message
+        status_parts = []
+        if channel is not None:
+            status_parts.append(f"Channel {channel_num}")
+        if mode is not None:
+            status_parts.append(f"{dvm_mode.to_user_name()} mode")
+        if enabled is not None:
+            status_parts.append("enabled" if enabled else "disabled")
+
+        message = "DVM configured"
+        if status_parts:
+            message += ": " + ", ".join(status_parts)
+
+        return DVMConfigureResult(
+            enabled=is_enabled,
+            source=scpi_source,
+            channel=channel_num,
+            mode=dvm_mode.to_user_name(),
+            mode_description=dvm_mode.description(),
+            current_reading=current_reading,
+            unit="V",
+            message=message,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def get_dvm_status() -> DVMStatusResult:
+        """
+        Get comprehensive Digital Voltmeter status and current reading.
+
+        Returns all DVM settings including enable status, source channel,
+        measurement mode, mode description, and current voltage reading
+        (if DVM is enabled).
+
+        Returns:
+            Dictionary with complete DVM status and current reading
+        """
+        # Query all DVM settings
+        is_enabled = scope.dvm_is_enabled()
+        scpi_source = scope.dvm_get_source()
+        channel_num = _parse_channel_from_scpi(scpi_source)
+        dvm_mode = scope.dvm_get_mode()
+
+        # Query current reading if enabled
+        current_reading: Optional[float] = None
+        if is_enabled:
+            current_reading = scope.dvm_get_current_reading()
+
+        return DVMStatusResult(
+            enabled=is_enabled,
+            source=scpi_source,
+            channel=channel_num,
+            mode=dvm_mode.to_user_name(),
+            mode_description=dvm_mode.description(),
+            current_reading=current_reading,
+            unit="V",
+        )
 
     return mcp
 
