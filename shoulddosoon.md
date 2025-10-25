@@ -6,408 +6,11 @@ This document lists MCP tools to be added to the Rigol DHO824 MCP server, organi
 
 ---
 
-## Priority 1: Protocol Triggers & Decode
-
-### Serial Protocol Triggers
-
-#### 1. `configure_rs232_trigger`
-**SCPI:** `:TRIGger:RS232:*`
-
-Trigger on UART/RS232 serial data patterns.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE RS232
-:TRIGger:RS232:SOURce <channel>
-:TRIGger:RS232:WHEN {STARt|STOP|DATA|ERRor}
-:TRIGger:RS232:DATA <byte>         # For DATA mode
-:TRIGger:RS232:BAUD <rate>
-:TRIGger:RS232:PARity {NONE|EVEN|ODD|MARK|SPACe}
-:TRIGger:RS232:STOP {1|1.5|2}
-:TRIGger:RS232:POL {POSitive|NEGative}
-:TRIGger:RS232:LEVel <voltage>
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `when`: Trigger condition ("START", "STOP", "DATA", "ERROR")
-- `data_value`: Data byte to match (0-255, only for DATA mode)
-- `baud_rate`: Baud rate (2400-115200)
-- `parity`: Parity setting
-- `stop_bits`: Stop bit count (1, 1.5, or 2)
-- `polarity`: Signal polarity
-- `level`: Trigger level in volts
-
-**Returns:** Complete RS232 trigger configuration
-
----
-
-#### 2. `configure_i2c_trigger`
-**SCPI:** `:TRIGger:IIC:*`
-
-Trigger on I2C bus events (start, stop, address, data).
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE IIC
-:TRIGger:IIC:SCL <channel>         # Clock line
-:TRIGger:IIC:SDA <channel>         # Data line
-:TRIGger:IIC:WHEN {STARt|RESTart|STOP|NACK|ADDRess|DATA|AERR}
-:TRIGger:IIC:ADDRess <addr>        # For ADDRess mode (7 or 10 bit)
-:TRIGger:IIC:DATA <byte>           # For DATA mode
-:TRIGger:IIC:AWIDth {7|10}         # Address width
-:TRIGger:IIC:DIR {READ|WRITe|RWRIte}
-:TRIGger:IIC:CLEVel <voltage>
-:TRIGger:IIC:DLEVel <voltage>
-```
-
-**Parameters:**
-- `scl_channel`: SCL (clock) channel (1-4)
-- `sda_channel`: SDA (data) channel (1-4)
-- `when`: Trigger condition
-- `address`: I2C address (for ADDRess mode)
-- `data_value`: Data byte (for DATA mode)
-- `address_width`: 7-bit or 10-bit addressing
-- `direction`: Transfer direction
-- `clock_level`: SCL threshold voltage
-- `data_level`: SDA threshold voltage
-
-**Returns:** Complete I2C trigger configuration
-
----
-
-#### 3. `configure_spi_trigger`
-**SCPI:** `:TRIGger:SPI:*`
-
-Trigger on SPI bus data patterns.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE SPI
-:TRIGger:SPI:SCLKsource <channel>
-:TRIGger:SPI:MISOsource <channel>
-:TRIGger:SPI:CSSource <channel>
-:TRIGger:SPI:SLOPe {POSitive|NEGative}
-:TRIGger:SPI:WHEN {TIMeout}
-:TRIGger:SPI:TIMeout <time>
-:TRIGger:SPI:WIDth {8|16|24|32}
-:TRIGger:SPI:DATA <value>
-:TRIGger:SPI:CLEVel <voltage>
-:TRIGger:SPI:MLEVel <voltage>
-:TRIGger:SPI:SLEVel <voltage>
-```
-
-**Parameters:**
-- `sclk_channel`: Clock channel (1-4)
-- `miso_channel`: MISO channel (1-4, optional)
-- `cs_channel`: Chip select channel (1-4, optional)
-- `clock_slope`: Clock edge ("POSITIVE" or "NEGATIVE")
-- `when`: Trigger condition ("TIMEOUT", etc.)
-- `timeout`: Timeout duration in seconds
-- `data_width`: Data width in bits (8, 16, 24, 32)
-- `data_value`: Data pattern to match
-- `clock_level`: SCLK threshold voltage
-- `miso_level`: MISO threshold voltage
-- `cs_level`: CS threshold voltage
-
-**Returns:** Complete SPI trigger configuration
-
----
-
-#### 4. `configure_can_trigger`
-**SCPI:** `:TRIGger:CAN:*`
-
-Trigger on CAN bus frames and errors.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE CAN
-:TRIGger:CAN:SOURce <channel>
-:TRIGger:CAN:BAUD <rate>
-:TRIGger:CAN:SIGNal {RX|TX|DIFF}
-:TRIGger:CAN:WHEN {STARt|FRAM|IDENt|DATA|IDDA|ERRor|END|ACK}
-:TRIGger:CAN:SAMPoint <percent>
-:TRIGger:CAN:FTYPE {DATA|REMote}
-:TRIGger:CAN:ITYPE {STANdard|EXTended}
-:TRIGger:CAN:ID <id>
-:TRIGger:CAN:DATA <bytes>
-:TRIGger:CAN:LEVel <voltage>
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `baud_rate`: CAN baud rate
-- `signal_type`: Signal type (RX, TX, or differential)
-- `when`: Trigger condition
-- `sample_point`: Sample point percentage
-- `frame_type`: DATA or REMOTE frame
-- `id_type`: STANDARD (11-bit) or EXTENDED (29-bit)
-- `identifier`: CAN identifier
-- `data_bytes`: Data pattern
-- `level`: Trigger level voltage
-
-**Returns:** Complete CAN trigger configuration
-
----
-
-#### 5. `configure_lin_trigger`
-**SCPI:** `:TRIGger:LIN:*`
-
-Trigger on LIN bus frames and errors.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE LIN
-:TRIGger:LIN:SOURce <channel>
-:TRIGger:LIN:STANdard {1P0|2P0|2P1|2P2}
-:TRIGger:LIN:BAUD <rate>
-:TRIGger:LIN:WHEN {SYNC|IDENtifier|DATA|IDDA|ERRor|AWAK}
-:TRIGger:LIN:ERRType {SYNError|PARError|CHKError|TOUTerror}
-:TRIGger:LIN:ID <id>
-:TRIGger:LIN:DATA <bytes>
-:TRIGger:LIN:LEVel <voltage>
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `standard`: LIN version (1.0, 2.0, 2.1, 2.2)
-- `baud_rate`: LIN baud rate
-- `when`: Trigger condition
-- `error_type`: Error type (for ERRor mode)
-- `identifier`: LIN identifier (0-63)
-- `data_bytes`: Data pattern
-- `level`: Trigger level voltage
-
-**Returns:** Complete LIN trigger configuration
-
----
-
-### Bus Decode Configuration
-
-#### 6. `configure_parallel_bus`
-**SCPI:** `:BUS<n>:PARallel:*`
-
-Configure parallel bus decode (up to 8 bits).
-
-**Complete SCPI sequence:**
-```
-:BUS<n>:MODE PARallel
-:BUS<n>:PARallel:BIT<m>:SOURce <channel>
-:BUS<n>:PARallel:CLOCk <channel>
-:BUS<n>:PARallel:WIDth <bits>
-:BUS<n>:PARallel:CLOCk:POLarity {POSitive|NEGative}
-:BUS<n>:PARallel:BITOrder {LSB|MSB}
-```
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-- `bit_assignments`: Dictionary mapping bit positions to channels, e.g., {0: 1, 1: 2, 2: 3}
-- `clock_channel`: Clock channel (optional)
-- `width`: Bus width in bits (1-8)
-- `clock_polarity`: Clock edge ("POSITIVE" or "NEGATIVE")
-- `bit_order`: Bit endianness ("LSB" or "MSB")
-
-**Returns:** Complete parallel bus configuration
-
----
-
-#### 7. `configure_rs232_bus`
-**SCPI:** `:BUS<n>:RS232:*`
-
-Configure UART/RS232 bus decode.
-
-**Complete SCPI sequence:**
-```
-:BUS<n>:MODE RS232
-:BUS<n>:RS232:TX <channel>
-:BUS<n>:RS232:RX <channel>
-:BUS<n>:RS232:POLarity {POSitive|NEGative}
-:BUS<n>:RS232:PARity {NONE|EVEN|ODD|MARK|SPACe}
-:BUS<n>:RS232:BITOrder {LSB|MSB}
-:BUS<n>:RS232:BAUD <rate>
-:BUS<n>:RS232:DATa {5|6|7|8|9}
-:BUS<n>:RS232:STOP {1|1.5|2}
-```
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-- `tx_channel`: TX channel (optional)
-- `rx_channel`: RX channel (optional)
-- `polarity`: Signal polarity
-- `parity`: Parity setting
-- `bit_order`: Bit endianness
-- `baud_rate`: Baud rate
-- `data_bits`: Data bits (5-9)
-- `stop_bits`: Stop bits (1, 1.5, 2)
-
-**Returns:** Complete RS232 bus decode configuration
-
----
-
-#### 8. `configure_i2c_bus`
-**SCPI:** `:BUS<n>:IIC:*`
-
-Configure I2C bus decode.
-
-**Complete SCPI sequence:**
-```
-:BUS<n>:MODE IIC
-:BUS<n>:IIC:SCL <channel>
-:BUS<n>:IIC:SDA <channel>
-:BUS<n>:IIC:AWIDth {7|10}
-```
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-- `scl_channel`: SCL channel
-- `sda_channel`: SDA channel
-- `address_width`: Address width (7 or 10 bits)
-
-**Returns:** Complete I2C bus decode configuration
-
----
-
-#### 9. `configure_spi_bus`
-**SCPI:** `:BUS<n>:SPI:*`
-
-Configure SPI bus decode.
-
-**Complete SCPI sequence:**
-```
-:BUS<n>:MODE SPI
-:BUS<n>:SPI:SCLK <channel>
-:BUS<n>:SPI:MISO <channel>
-:BUS<n>:SPI:MOSI <channel>
-:BUS<n>:SPI:SS <channel>
-:BUS<n>:SPI:POLarity {POSitive|NEGative}
-:BUS<n>:SPI:DATa {4|8|16|24|32}
-:BUS<n>:SPI:BITOrder {LSB|MSB}
-:BUS<n>:SPI:MODE {CPOL0CPHA0|CPOL0CPHA1|CPOL1CPHA0|CPOL1CPHA1}
-:BUS<n>:SPI:TIMeout <time>
-```
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-- `sclk_channel`: Clock channel
-- `miso_channel`: MISO channel (optional)
-- `mosi_channel`: MOSI channel (optional)
-- `ss_channel`: Slave select channel (optional)
-- `clock_polarity`: Clock polarity
-- `data_bits`: Data width (4, 8, 16, 24, 32)
-- `bit_order`: Bit endianness
-- `spi_mode`: SPI mode (CPOL/CPHA combination)
-- `timeout`: Frame timeout in seconds
-
-**Returns:** Complete SPI bus decode configuration
-
----
-
-#### 10. `configure_can_bus`
-**SCPI:** `:BUS<n>:CAN:*`
-
-Configure CAN bus decode.
-
-**Complete SCPI sequence:**
-```
-:BUS<n>:MODE CAN
-:BUS<n>:CAN:SOURce <channel>
-:BUS<n>:CAN:SIGNal {RX|TX|DIFF}
-:BUS<n>:CAN:BAUD <rate>
-:BUS<n>:CAN:SAMPoint <percent>
-```
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-- `source_channel`: Source channel
-- `signal_type`: Signal type (RX, TX, DIFF)
-- `baud_rate`: CAN baud rate
-- `sample_point`: Sample point percentage (5-95%)
-
-**Returns:** Complete CAN bus decode configuration
-
----
-
-#### 11. `configure_lin_bus`
-**SCPI:** `:BUS<n>:LIN:*`
-
-Configure LIN bus decode.
-
-**Complete SCPI sequence:**
-```
-:BUS<n>:MODE LIN
-:BUS<n>:LIN:SOURce <channel>
-:BUS<n>:LIN:PARity {ENHanced|CLASsic}
-:BUS<n>:LIN:STANdard {1P0|2P0|2P1|2P2}
-```
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-- `source_channel`: Source channel
-- `parity`: Parity mode (enhanced or classic)
-- `standard`: LIN version
-
-**Returns:** Complete LIN bus decode configuration
-
----
-
-#### 12. `set_bus_display`
-**SCPI:** `:BUS<n>:DISPlay {ON|OFF}`
-
-Enable or disable bus decode display on screen.
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-- `enabled`: Boolean to show/hide decode
-
-**Returns:** Bus display status
-
----
-
-#### 13. `set_bus_format`
-**SCPI:** `:BUS<n>:FORMat {HEX|DEC|BIN|ASCii}`
-
-Set bus decode display format.
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-- `format`: Display format ("HEX", "DEC", "BIN", "ASCII")
-
-**Returns:** Current bus format
-
----
-
-#### 14. `get_bus_decoded_data`
-**SCPI:** `:BUS<n>:DATA?`
-
-Retrieve decoded bus data from screen.
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-
-**Returns:** Decoded bus data string
-
----
-
-#### 15. `export_bus_data`
-**SCPI:** `:BUS<n>:EEXPort <filepath>`
-
-Export decoded bus data to CSV file on scope storage, then download via FTP.
-
-**Parameters:**
-- `bus_number`: Bus number (1-4)
-- `local_filepath`: Local path to save CSV file
-
-**Returns:** Dictionary with file path and number of bytes downloaded
-
-**Note:** This tool handles the complete workflow: export on scope → download via FTP → save locally.
-
----
-
-## Priority 3: Advanced Acquisition & Channel Settings
+## Priority 1: Advanced Acquisition & Channel Settings
 
 ### Acquisition Settings
 
-#### 16. `set_acquisition_averages`
+#### 1. `set_acquisition_averages`
 **SCPI:** `:ACQuire:AVERages <count>`
 
 Set number of averages when acquisition type is AVERAGE.
@@ -421,7 +24,7 @@ Set number of averages when acquisition type is AVERAGE.
 
 ---
 
-#### 17. `configure_ultra_acquisition`
+#### 2. `configure_ultra_acquisition`
 **SCPI:** `:ACQuire:ULTRa:*`
 
 Configure Ultra Acquisition mode for high-speed waveform capture.
@@ -447,7 +50,7 @@ Configure Ultra Acquisition mode for high-speed waveform capture.
 
 ### Channel Settings
 
-#### 18. `set_channel_invert`
+#### 3. `set_channel_invert`
 **SCPI:** `:CHANnel<n>:INVert {ON|OFF}`
 
 Invert channel waveform display (multiply by -1).
@@ -460,7 +63,7 @@ Invert channel waveform display (multiply by -1).
 
 ---
 
-#### 19. `set_channel_label`
+#### 4. `set_channel_label`
 **SCPI:** `:CHANnel<n>:LABel:CONTent <text>`
 
 Set custom channel label text.
@@ -473,7 +76,7 @@ Set custom channel label text.
 
 ---
 
-#### 20. `set_channel_label_visible`
+#### 5. `set_channel_label_visible`
 **SCPI:** `:CHANnel<n>:LABel:SHOW {ON|OFF}`
 
 Show or hide custom channel label.
@@ -486,7 +89,7 @@ Show or hide custom channel label.
 
 ---
 
-#### 21. `set_channel_vernier`
+#### 6. `set_channel_vernier`
 **SCPI:** `:CHANnel<n>:VERNier {ON|OFF}`
 
 Enable fine (vernier) or coarse vertical scale adjustment.
@@ -501,7 +104,7 @@ Enable fine (vernier) or coarse vertical scale adjustment.
 
 ---
 
-#### 22. `set_channel_units`
+#### 7. `set_channel_units`
 **SCPI:** `:CHANnel<n>:UNITs {VOLt|WATT|AMPere|UNKNown}`
 
 Set voltage display units for channel.
@@ -516,7 +119,7 @@ Set voltage display units for channel.
 
 ### Timebase Settings
 
-#### 23. `set_timebase_mode`
+#### 8. `set_timebase_mode`
 **SCPI:** `:TIMebase:MODE {MAIN|XY|ROLL}`
 
 Set timebase display mode.
@@ -532,7 +135,7 @@ Set timebase display mode.
 
 ---
 
-#### 24. `enable_delayed_timebase`
+#### 9. `enable_delayed_timebase`
 **SCPI:** `:TIMebase:DELay:ENABle {ON|OFF}`
 
 Enable or disable delayed/zoom timebase (zoomed window).
@@ -544,7 +147,7 @@ Enable or disable delayed/zoom timebase (zoomed window).
 
 ---
 
-#### 25. `set_delayed_timebase_scale`
+#### 10. `set_delayed_timebase_scale`
 **SCPI:** `:TIMebase:DELay:SCALe <time>`
 
 Set zoom window horizontal scale (time/div).
@@ -558,7 +161,7 @@ Set zoom window horizontal scale (time/div).
 
 ---
 
-#### 26. `set_delayed_timebase_offset`
+#### 11. `set_delayed_timebase_offset`
 **SCPI:** `:TIMebase:DELay:OFFSet <time>`
 
 Set zoom window horizontal position.
@@ -572,7 +175,7 @@ Set zoom window horizontal position.
 
 ---
 
-#### 27. `set_timebase_vernier`
+#### 12. `set_timebase_vernier`
 **SCPI:** `:TIMebase:VERNier {ON|OFF}`
 
 Enable fine (vernier) or coarse timebase adjustment.
@@ -584,7 +187,7 @@ Enable fine (vernier) or coarse timebase adjustment.
 
 ---
 
-## Priority 4: Hardware Counter (Frequency/Period/Totalize)
+## Priority 2: Hardware Counter (Frequency/Period/Totalize)
 
 The hardware counter provides high-precision frequency/period measurements independent of the main acquisition system.
 
@@ -596,7 +199,7 @@ The dedicated hardware counter (`:COUNter:*`) provides superior accuracy and sho
 
 ---
 
-#### 28. `configure_hardware_counter`
+#### 13. `configure_hardware_counter`
 **SCPI:** `:COUNter:*`
 
 Configure hardware frequency counter in a single call.
@@ -631,7 +234,7 @@ Configure hardware frequency counter in a single call.
 
 ---
 
-#### 29. `get_hardware_counter_value`
+#### 14. `get_hardware_counter_value`
 **SCPI:** `:COUNter:CURRent?`
 
 Get current hardware counter reading.
@@ -642,7 +245,7 @@ Get current hardware counter reading.
 
 ---
 
-#### 30. `reset_counter_totalize`
+#### 15. `reset_counter_totalize`
 **SCPI:** `:COUNter:TOTalize:CLEar`
 
 Clear/reset the totalize counter and statistics.
@@ -653,11 +256,11 @@ Clear/reset the totalize counter and statistics.
 
 ---
 
-## Priority 5: Waveform Recording (Segmented Memory)
+## Priority 3: Waveform Recording (Segmented Memory)
 
 Waveform recording captures multiple triggered waveforms into segmented memory for later analysis.
 
-#### 31. `start_waveform_recording`
+#### 16. `start_waveform_recording`
 **SCPI:** `:RECord:WRECord:*`
 
 Start recording waveforms to segmented memory.
@@ -680,7 +283,7 @@ Start recording waveforms to segmented memory.
 
 ---
 
-#### 32. `stop_waveform_recording`
+#### 17. `stop_waveform_recording`
 **SCPI:** `:RECord:WRECord:OPERate STOP`
 
 Stop waveform recording.
@@ -689,7 +292,7 @@ Stop waveform recording.
 
 ---
 
-#### 33. `get_recording_status`
+#### 18. `get_recording_status`
 **SCPI:** `:RECord:WRECord:*?`
 
 Query recording status and settings.
@@ -706,7 +309,7 @@ Query recording status and settings.
 
 ---
 
-#### 34. `replay_recorded_frames`
+#### 19. `replay_recorded_frames`
 **SCPI:** `:RECord:WREPlay:*`
 
 Configure and control recorded waveform playback.
@@ -740,7 +343,7 @@ Configure and control recorded waveform playback.
 
 ---
 
-#### 35. `export_recorded_frame`
+#### 20. `export_recorded_frame`
 **SCPI:** `:RECord:WREPlay:FCURrent + :WAV:DATA?`
 
 Export specific recorded frame as waveform data.
@@ -765,11 +368,11 @@ Export specific recorded frame as waveform data.
 
 ---
 
-## Priority 6: Reference Waveforms
+## Priority 4: Reference Waveforms
 
 Reference waveforms allow saving and comparing waveforms on-screen.
 
-#### 36. `save_reference_waveform`
+#### 21. `save_reference_waveform`
 **SCPI:** `:REFerence:SAVE <source>,<ref_slot>`
 
 Save current waveform as reference.
@@ -782,7 +385,7 @@ Save current waveform as reference.
 
 ---
 
-#### 37. `configure_reference_display`
+#### 22. `configure_reference_display`
 **SCPI:** `:REFerence:*`
 
 Configure reference waveform display.
@@ -805,9 +408,9 @@ Configure reference waveform display.
 
 ---
 
-## Priority 7: System Utilities
+## Priority 5: System Utilities
 
-#### 38. `reset_instrument`
+#### 23. `reset_instrument`
 **SCPI:** `*RST` or `:SYSTem:RESet`
 
 Perform factory reset of oscilloscope.
@@ -818,7 +421,7 @@ Perform factory reset of oscilloscope.
 
 ---
 
-#### 39. `get_system_error`
+#### 24. `get_system_error`
 **SCPI:** `:SYSTem:ERRor[:NEXT]?`
 
 Query and clear next error from error queue.
@@ -829,7 +432,7 @@ Query and clear next error from error queue.
 
 ---
 
-#### 40. `save_setup`
+#### 25. `save_setup`
 **SCPI:** `:SAVE:SETup <filepath>`
 
 Save current oscilloscope setup to internal storage, then download via FTP.
@@ -844,7 +447,7 @@ Save current oscilloscope setup to internal storage, then download via FTP.
 
 ---
 
-#### 41. `load_setup`
+#### 26. `load_setup`
 **SCPI:** `:LOAD:SETup <filepath>`
 
 Upload setup file via FTP, then load into oscilloscope.
@@ -858,7 +461,7 @@ Upload setup file via FTP, then load into oscilloscope.
 
 ---
 
-#### 42. `set_autoset_options`
+#### 27. `set_autoset_options`
 **SCPI:** `:AUToset:*`
 
 Configure autoset behavior.
@@ -877,9 +480,9 @@ Configure autoset behavior.
 
 ---
 
-## Priority 8: Display Settings
+## Priority 6: Display Settings
 
-#### 43. `configure_display`
+#### 28. `configure_display`
 **SCPI:** `:DISPlay:*`
 
 Configure display appearance.
@@ -900,9 +503,9 @@ Configure display appearance.
 
 ---
 
-## Priority 9: XY Mode (Lissajous)
+## Priority 7: XY Mode (Lissajous)
 
-#### 44. `configure_xy_mode`
+#### 29. `configure_xy_mode`
 **SCPI:** `:TIMebase:XY:*`
 
 Configure XY (Lissajous) display mode.
@@ -932,36 +535,38 @@ Configure XY (Lissajous) display mode.
 
 ## Summary by Category
 
-### Critical (Implement First)
-**Advanced Trigger Types (5 tools):** Items 1-5 (pulse, slope, runt, timeout, and window triggers)
-- Pulse, slope, runt, timeout, and window triggers cover 90% of advanced trigger use cases
-- Essential for capturing and analyzing complex signal behaviors
+### High Priority (Implement First)
+**Advanced Acquisition & Channel Settings (12 tools):** Items 1-12
+- Acquisition averages and ultra mode
+- Channel invert, labels, vernier, and units
+- Delayed timebase and vernier for fine-tuning
+- Fine control over display and acquisition
 
-### High Priority (Implement Next)
-**Protocol Analysis (10 tools):** Items 16-20 (protocol triggers), 21-26 (bus decode)
-- Essential for digital/embedded work
-- Hardware-accelerated protocol decode
-
-**Hardware Counter (3 tools):** Items 43-45
+**Hardware Counter (3 tools):** Items 13-15
 - High-precision measurements independent of main acquisition
 - Superior to software measurements
+- Frequency, period, and totalize modes
 
 ### Medium Priority
-**Advanced Triggers (6 tools):** Items 10-15 (remaining advanced triggers)
-- Specialized trigger types for specific use cases
-
-**Channel/Timebase/Acquisition (12 tools):** Items 31-42
-- Fine-tuning and advanced display modes
-- Useful but not critical for basic operation
-
-**Waveform Recording (5 tools):** Items 46-50
+**Waveform Recording (5 tools):** Items 16-20
 - Segmented memory capture and playback
 - Excellent for intermittent event analysis
+- Frame export and replay capabilities
+
+**Reference Waveforms (2 tools):** Items 21-22
+- Save and display reference waveforms
+- Useful for comparison and quality control
 
 ### Lower Priority
-**Reference Waveforms (2 tools):** Items 51-52
-**System Utilities (5 tools):** Items 53-57
-**Display/XY Mode (2 tools):** Items 58-59
+**System Utilities (5 tools):** Items 23-27
+- Reset, error handling, setup save/load
+- Autoset configuration
+
+**Display Settings (1 tool):** Item 28
+- Grid and brightness configuration
+
+**XY Mode (1 tool):** Item 29
+- Lissajous/XY display for phase analysis
 
 ---
 
@@ -978,22 +583,21 @@ Each tool should provide **complete, end-to-end functionality**:
 
 **❌ BAD - Multiple tool calls required:**
 ```python
-enable_pulse_trigger()
-set_pulse_source(1)
-set_pulse_when("GREATER")
-set_pulse_width(1e-6)
-set_pulse_level(1.5)
+enable_hardware_counter()
+set_counter_source(1)
+set_counter_mode("FREQUENCY")
+set_counter_digits(6)
+get_counter_value()
 ```
 
 **✅ GOOD - Single comprehensive tool:**
 ```python
-configure_pulse_trigger(
+configure_hardware_counter(
+    enabled=True,
     channel=1,
-    polarity="POSITIVE",
-    when="GREATER",
-    upper_width=1e-6,
-    level=1.5
-)
+    mode="FREQUENCY",
+    digits=6
+)  # Returns configuration AND current reading
 ```
 
 ### Verification Strategy
@@ -1005,6 +609,6 @@ configure_pulse_trigger(
 
 ---
 
-## Total: 55 New Tools
+## Total: 29 Remaining Tools
 
-This represents a complete implementation of all hardware-supported features not yet in the MCP server, excluding features better done in Python (math, FFT, measurements, filters, etc.).
+This represents the remaining unimplemented features after completing all protocol triggers and bus decode tools. These focus on acquisition control, measurement utilities, and system management.
