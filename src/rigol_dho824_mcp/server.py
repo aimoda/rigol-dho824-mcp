@@ -238,6 +238,58 @@ class DVMMode(str, Enum):
         return descriptions[self]
 
 
+class TimeCondition(str, Enum):
+    """Time-based trigger conditions (used by multiple trigger types)."""
+
+    GREATER = "GREater"  # Greater than threshold
+    LESS = "LESS"  # Less than threshold
+    WITHIN = "WITHin"  # Within range
+
+
+class VideoStandard(str, Enum):
+    """Video signal standards."""
+
+    PAL_SECAM = "PALSecam"
+    NTSC = "NTSC"
+    P480 = "480P"
+    P576 = "576P"
+
+
+class VideoMode(str, Enum):
+    """Video trigger modes."""
+
+    ODD_FIELD = "ODDfield"
+    EVEN_FIELD = "EVENfield"
+    LINE = "LINE"
+    ALL_LINES = "ALINes"
+
+
+class PatternValue(str, Enum):
+    """Pattern values for pattern trigger."""
+
+    HIGH = "H"  # High (above threshold)
+    LOW = "L"  # Low (below threshold)
+    DONT_CARE = "X"  # Don't care
+    RISING = "R"  # Rising edge
+    FALLING = "F"  # Falling edge
+
+
+class WindowPosition(str, Enum):
+    """Window trigger position modes."""
+
+    EXIT = "EXIT"  # Trigger when signal exits window
+    ENTER = "ENTER"  # Trigger when signal enters window
+    TIME = "TIME"  # Trigger when signal stays in window for time duration
+
+
+class SlopeWindow(str, Enum):
+    """Slope trigger time measurement windows."""
+
+    TA = "TA"  # Measure from level A
+    TB = "TB"  # Measure from level B
+    TAB = "TAB"  # Measure from level A to level B
+
+
 # === TYPE DEFINITIONS FOR RESULTS ===
 
 
@@ -569,6 +621,156 @@ class DVMConfigureResult(TypedDict):
     ]
     unit: Annotated[str, Field(description="Measurement unit (V)")]
     message: Annotated[str, Field(description="Configuration status message")]
+
+
+# Advanced Trigger Results
+
+
+class PulseTriggerResult(TypedDict):
+    """Result for pulse trigger configuration."""
+
+    trigger_mode: Annotated[Literal["PULSE"], Field(description="Trigger mode (PULSE)")]
+    channel: ChannelNumber
+    polarity: Annotated[str, Field(description="Pulse polarity (POSITIVE or NEGATIVE)")]
+    when: Annotated[str, Field(description="Width condition (GREATER, LESS, or WITHIN)")]
+    upper_width: Annotated[float, Field(description="Upper width limit in seconds")]
+    lower_width: Annotated[
+        Optional[float], Field(description="Lower width limit in seconds (for WITHIN)")
+    ]
+    level: Annotated[float, Field(description="Trigger level in volts")]
+
+
+class SlopeTriggerResult(TypedDict):
+    """Result for slope trigger configuration."""
+
+    trigger_mode: Annotated[Literal["SLOPE"], Field(description="Trigger mode (SLOPE)")]
+    channel: ChannelNumber
+    polarity: Annotated[str, Field(description="Slope direction (POSITIVE or NEGATIVE)")]
+    when: Annotated[str, Field(description="Time condition (GREATER, LESS, or WITHIN)")]
+    upper_time: Annotated[float, Field(description="Upper time limit in seconds")]
+    lower_time: Annotated[
+        Optional[float], Field(description="Lower time limit in seconds (for WITHIN)")
+    ]
+    level_a: Annotated[float, Field(description="Start voltage level")]
+    level_b: Annotated[float, Field(description="End voltage level")]
+    window: Annotated[str, Field(description="Measurement window (TA, TB, or TAB)")]
+
+
+class VideoTriggerResult(TypedDict):
+    """Result for video trigger configuration."""
+
+    trigger_mode: Annotated[Literal["VIDEO"], Field(description="Trigger mode (VIDEO)")]
+    channel: ChannelNumber
+    polarity: Annotated[str, Field(description="Sync polarity (POSITIVE or NEGATIVE)")]
+    mode: Annotated[str, Field(description="Video mode")]
+    line_number: Annotated[
+        Optional[int], Field(description="Line number (for LINE mode)")
+    ]
+    standard: Annotated[str, Field(description="Video standard")]
+    level: Annotated[float, Field(description="Trigger level in volts")]
+
+
+class PatternTriggerResult(TypedDict):
+    """Result for pattern trigger configuration."""
+
+    trigger_mode: Annotated[Literal["PATTERN"], Field(description="Trigger mode (PATTERN)")]
+    pattern: Annotated[
+        List[str], Field(description="4-element pattern (H, L, X, R, or F)")
+    ]
+    levels: Annotated[
+        dict[int, float], Field(description="Trigger levels per channel")
+    ]
+
+
+class RuntTriggerResult(TypedDict):
+    """Result for runt trigger configuration."""
+
+    trigger_mode: Annotated[Literal["RUNT"], Field(description="Trigger mode (RUNT)")]
+    channel: ChannelNumber
+    polarity: Annotated[str, Field(description="Runt pulse direction")]
+    when: Annotated[str, Field(description="Width qualification")]
+    upper_width: Annotated[float, Field(description="Upper width limit in seconds")]
+    lower_width: Annotated[float, Field(description="Lower width limit in seconds")]
+    level_a: Annotated[float, Field(description="Upper voltage threshold")]
+    level_b: Annotated[float, Field(description="Lower voltage threshold")]
+
+
+class TimeoutTriggerResult(TypedDict):
+    """Result for timeout trigger configuration."""
+
+    trigger_mode: Annotated[Literal["TIMEOUT"], Field(description="Trigger mode (TIMEOUT)")]
+    channel: ChannelNumber
+    slope: Annotated[str, Field(description="Edge to start timeout counter")]
+    timeout: Annotated[float, Field(description="Idle time in seconds")]
+    level: Annotated[float, Field(description="Trigger level in volts")]
+
+
+class DurationTriggerResult(TypedDict):
+    """Result for duration trigger configuration."""
+
+    trigger_mode: Annotated[Literal["DURATION"], Field(description="Trigger mode (DURATION)")]
+    channel: ChannelNumber
+    pattern_type: Annotated[str, Field(description="Pattern qualifier")]
+    when: Annotated[str, Field(description="Duration condition")]
+    upper_width: Annotated[float, Field(description="Upper time limit in seconds")]
+    lower_width: Annotated[float, Field(description="Lower time limit in seconds")]
+    level: Annotated[float, Field(description="Trigger level in volts")]
+
+
+class SetupHoldTriggerResult(TypedDict):
+    """Result for setup/hold trigger configuration."""
+
+    trigger_mode: Annotated[Literal["SETUP_HOLD"], Field(description="Trigger mode (SETUP_HOLD)")]
+    data_channel: ChannelNumber
+    clock_channel: ChannelNumber
+    clock_slope: Annotated[str, Field(description="Clock edge direction")]
+    data_pattern: Annotated[str, Field(description="Expected data value (H or L)")]
+    setup_time: Annotated[float, Field(description="Minimum setup time in seconds")]
+    hold_time: Annotated[float, Field(description="Minimum hold time in seconds")]
+    data_level: Annotated[float, Field(description="Data threshold voltage")]
+    clock_level: Annotated[float, Field(description="Clock threshold voltage")]
+
+
+class NthEdgeTriggerResult(TypedDict):
+    """Result for Nth edge trigger configuration."""
+
+    trigger_mode: Annotated[Literal["NTH_EDGE"], Field(description="Trigger mode (NTH_EDGE)")]
+    channel: ChannelNumber
+    slope: Annotated[str, Field(description="Edge direction to count")]
+    idle_time: Annotated[float, Field(description="Minimum idle time in seconds")]
+    edge_count: Annotated[int, Field(description="Which edge number to trigger on")]
+    level: Annotated[float, Field(description="Trigger level in volts")]
+
+
+class WindowTriggerResult(TypedDict):
+    """Result for window trigger configuration."""
+
+    trigger_mode: Annotated[Literal["WINDOW"], Field(description="Trigger mode (WINDOW)")]
+    channel: ChannelNumber
+    slope: Annotated[str, Field(description="Edge direction")]
+    position: Annotated[str, Field(description="Trigger position (EXIT, ENTER, or TIME)")]
+    time: Annotated[
+        Optional[float], Field(description="Duration for TIME position mode")
+    ]
+    level_a: Annotated[float, Field(description="Upper voltage threshold")]
+    level_b: Annotated[float, Field(description="Lower voltage threshold")]
+
+
+class DelayTriggerResult(TypedDict):
+    """Result for delay trigger configuration."""
+
+    trigger_mode: Annotated[Literal["DELAY"], Field(description="Trigger mode (DELAY)")]
+    source_a_channel: ChannelNumber
+    source_b_channel: ChannelNumber
+    slope_a: Annotated[str, Field(description="Source A edge direction")]
+    slope_b: Annotated[str, Field(description="Source B edge direction")]
+    delay_type: Annotated[str, Field(description="Delay condition")]
+    upper_time: Annotated[float, Field(description="Upper time limit in seconds")]
+    lower_time: Annotated[
+        Optional[float], Field(description="Lower time limit in seconds (for WITHIN)")
+    ]
+    level_a: Annotated[float, Field(description="Source A threshold voltage")]
+    level_b: Annotated[float, Field(description="Source B threshold voltage")]
 
 
 # === OSCILLOSCOPE CONNECTION CLASS ===
@@ -1920,6 +2122,1183 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_state = int(scope.instrument.query(":TRIG:NREJ?"))  # type: ignore[reportAttributeAccessIssue]
 
         return TriggerNoiseRejectResult(noise_reject_enabled=bool(actual_state))
+
+    # === ADVANCED TRIGGER TYPES ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_pulse_trigger(
+        channel: ChannelNumber,
+        polarity: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Pulse polarity: POSITIVE or NEGATIVE"),
+        ],
+        when: Annotated[
+            Literal["GREATER", "LESS", "WITHIN"],
+            Field(description="Width condition: GREATER, LESS, or WITHIN"),
+        ],
+        upper_width: Annotated[
+            float, Field(description="Upper width limit in seconds")
+        ],
+        level: Annotated[float, Field(description="Trigger level in volts")],
+        lower_width: Annotated[
+            Optional[float],
+            Field(description="Lower width limit in seconds (required for WITHIN)"),
+        ] = None,
+    ) -> PulseTriggerResult:
+        """
+        Configure pulse width trigger to detect pulses that meet width conditions.
+
+        Detects pulses narrower/wider than specified limits or within a range.
+        Essential for finding glitches, detecting timeouts, and validating pulse widths.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE PULSe
+        - :TRIGger:PULSe:SOURce <channel>
+        - :TRIGger:PULSe:WHEN {GREater|LESS|WITHin}
+        - :TRIGger:PULSe:UWIDth <time>
+        - :TRIGger:PULSe:LWIDth <time> (for WITHIN)
+        - :TRIGger:PULSe:POLarity {POSitive|NEGative}
+        - :TRIGger:PULSe:LEVel <voltage>
+
+        Args:
+            channel: Source channel (1-4)
+            polarity: Pulse polarity - "POSITIVE" or "NEGATIVE"
+            when: Width condition - "GREATER", "LESS", or "WITHIN"
+            upper_width: Upper width limit in seconds
+            level: Trigger level in volts
+            lower_width: Lower width limit in seconds (required for WITHIN)
+
+        Returns:
+            Complete pulse trigger configuration
+
+        Use cases:
+        - Finding glitches (LESS than expected width)
+        - Detecting timeouts (GREATER than expected)
+        - Validating pulse width range (WITHIN limits)
+        """
+        # Validate WITHIN requires lower_width
+        if when == "WITHIN" and lower_width is None:
+            raise ValueError("lower_width is required when when='WITHIN'")
+
+        # Set trigger mode to PULSE
+        scope.instrument.write(":TRIG:MODE PULS")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:PULS:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map when condition to SCPI format
+        when_map = {
+            "GREATER": "GRE",
+            "LESS": "LESS",
+            "WITHIN": "WITH",
+        }
+        scope.instrument.write(f":TRIG:PULS:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set upper width
+        scope.instrument.write(f":TRIG:PULS:UWID {upper_width}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set lower width if WITHIN
+        if when == "WITHIN" and lower_width is not None:
+            scope.instrument.write(f":TRIG:PULS:LWID {lower_width}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map polarity to SCPI format
+        polarity_map = {
+            "POSITIVE": "POS",
+            "NEGATIVE": "NEG",
+        }
+        scope.instrument.write(f":TRIG:PULS:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set trigger level
+        scope.instrument.write(f":TRIG:PULS:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration by reading back
+        actual_source = scope.instrument.query(":TRIG:PULS:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_when = scope.instrument.query(":TRIG:PULS:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_upper = float(scope.instrument.query(":TRIG:PULS:UWID?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_polarity = scope.instrument.query(":TRIG:PULS:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_level = float(scope.instrument.query(":TRIG:PULS:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channel from source
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Read lower width if applicable
+        actual_lower: Optional[float] = None
+        if when == "WITHIN":
+            actual_lower = float(scope.instrument.query(":TRIG:PULS:LWID?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Map responses back to user-friendly format
+        when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+        polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+
+        return PulseTriggerResult(
+            trigger_mode="PULSE",
+            channel=actual_channel,
+            polarity=polarity_reverse.get(actual_polarity, polarity),
+            when=when_reverse.get(actual_when, when),
+            upper_width=actual_upper,
+            lower_width=actual_lower,
+            level=actual_level,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_slope_trigger(
+        channel: ChannelNumber,
+        polarity: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Slope direction: POSITIVE (rising) or NEGATIVE (falling)"),
+        ],
+        when: Annotated[
+            Literal["GREATER", "LESS", "WITHIN"],
+            Field(description="Time condition: GREATER, LESS, or WITHIN"),
+        ],
+        upper_time: Annotated[
+            float, Field(description="Upper time limit in seconds")
+        ],
+        level_a: Annotated[float, Field(description="Start voltage level")],
+        level_b: Annotated[float, Field(description="End voltage level")],
+        window: Annotated[
+            Literal["TA", "TB", "TAB"],
+            Field(description="Time measurement window: TA, TB, or TAB"),
+        ],
+        lower_time: Annotated[
+            Optional[float],
+            Field(description="Lower time limit in seconds (required for WITHIN)"),
+        ] = None,
+    ) -> SlopeTriggerResult:
+        """
+        Configure slope/rise time trigger to detect edges with specific timing characteristics.
+
+        Detects edges that are too fast, too slow, or within timing range.
+        Essential for signal integrity analysis and validating rise/fall time specifications.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE SLOPe
+        - :TRIGger:SLOPe:SOURce <channel>
+        - :TRIGger:SLOPe:WHEN {GREater|LESS|WITHin}
+        - :TRIGger:SLOPe:TUPPer <time>
+        - :TRIGger:SLOPe:TLOWer <time> (for WITHIN)
+        - :TRIGger:SLOPe:POLarity {POSitive|NEGative}
+        - :TRIGger:SLOPe:ALEVel <voltage>
+        - :TRIGger:SLOPe:BLEVel <voltage>
+        - :TRIGger:SLOPe:WINDow {TA|TB|TAB}
+
+        Args:
+            channel: Source channel (1-4)
+            polarity: Slope direction - "POSITIVE" (rising) or "NEGATIVE" (falling)
+            when: Time condition - "GREATER", "LESS", or "WITHIN"
+            upper_time: Upper time limit in seconds
+            level_a: Start voltage level
+            level_b: End voltage level
+            window: Time measurement window - "TA", "TB", or "TAB"
+            lower_time: Lower time limit in seconds (required for WITHIN)
+
+        Returns:
+            Complete slope trigger configuration
+
+        Use cases:
+        - Detecting slow edges (signal integrity issues)
+        - Finding fast transients
+        - Validating rise/fall time specifications
+        """
+        # Validate WITHIN requires lower_time
+        if when == "WITHIN" and lower_time is None:
+            raise ValueError("lower_time is required when when='WITHIN'")
+
+        # Set trigger mode to SLOPE
+        scope.instrument.write(":TRIG:MODE SLOP")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:SLOP:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map when condition to SCPI format
+        when_map = {
+            "GREATER": "GRE",
+            "LESS": "LESS",
+            "WITHIN": "WITH",
+        }
+        scope.instrument.write(f":TRIG:SLOP:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set upper time
+        scope.instrument.write(f":TRIG:SLOP:TUPP {upper_time}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set lower time if WITHIN
+        if when == "WITHIN" and lower_time is not None:
+            scope.instrument.write(f":TRIG:SLOP:TLOW {lower_time}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map polarity to SCPI format
+        polarity_map = {
+            "POSITIVE": "POS",
+            "NEGATIVE": "NEG",
+        }
+        scope.instrument.write(f":TRIG:SLOP:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set voltage levels
+        scope.instrument.write(f":TRIG:SLOP:ALEV {level_a}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:SLOP:BLEV {level_b}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set window
+        scope.instrument.write(f":TRIG:SLOP:WIND {window}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration by reading back
+        actual_source = scope.instrument.query(":TRIG:SLOP:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_when = scope.instrument.query(":TRIG:SLOP:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_upper = float(scope.instrument.query(":TRIG:SLOP:TUPP?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_polarity = scope.instrument.query(":TRIG:SLOP:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_level_a = float(scope.instrument.query(":TRIG:SLOP:ALEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level_b = float(scope.instrument.query(":TRIG:SLOP:BLEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_window = scope.instrument.query(":TRIG:SLOP:WIND?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channel from source
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Read lower time if applicable
+        actual_lower: Optional[float] = None
+        if when == "WITHIN":
+            actual_lower = float(scope.instrument.query(":TRIG:SLOP:TLOW?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Map responses back to user-friendly format
+        when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+        polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+
+        return SlopeTriggerResult(
+            trigger_mode="SLOPE",
+            channel=actual_channel,
+            polarity=polarity_reverse.get(actual_polarity, polarity),
+            when=when_reverse.get(actual_when, when),
+            upper_time=actual_upper,
+            lower_time=actual_lower,
+            level_a=actual_level_a,
+            level_b=actual_level_b,
+            window=actual_window,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_video_trigger(
+        channel: ChannelNumber,
+        polarity: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Sync polarity: POSITIVE or NEGATIVE"),
+        ],
+        mode: Annotated[
+            Literal["ODD_FIELD", "EVEN_FIELD", "LINE", "ALL_LINES"],
+            Field(description="Trigger mode: ODD_FIELD, EVEN_FIELD, LINE, or ALL_LINES"),
+        ],
+        standard: Annotated[
+            Literal["PAL_SECAM", "NTSC", "480P", "576P"],
+            Field(description="Video standard: PAL_SECAM, NTSC, 480P, or 576P"),
+        ],
+        level: Annotated[float, Field(description="Trigger level in volts")],
+        line_number: Annotated[
+            Optional[int],
+            Field(description="Line number (1-625 for PAL, 1-525 for NTSC, required for LINE mode)"),
+        ] = None,
+    ) -> VideoTriggerResult:
+        """
+        Configure video trigger to detect video sync signals (NTSC, PAL, SECAM).
+
+        Triggers on video synchronization pulses for analyzing video signals.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE VIDeo
+        - :TRIGger:VIDeo:SOURce <channel>
+        - :TRIGger:VIDeo:POLarity {POSitive|NEGative}
+        - :TRIGger:VIDeo:MODE {ODDfield|EVENfield|LINE|ALINes}
+        - :TRIGger:VIDeo:LINE <line_number> (for LINE mode)
+        - :TRIGger:VIDeo:STANdard {PALSecam|NTSC|480P|576P}
+        - :TRIGger:VIDeo:LEVel <voltage>
+
+        Args:
+            channel: Source channel (1-4)
+            polarity: Sync polarity - "POSITIVE" or "NEGATIVE"
+            mode: Trigger mode - "ODD_FIELD", "EVEN_FIELD", "LINE", or "ALL_LINES"
+            standard: Video standard - "PAL_SECAM", "NTSC", "480P", or "576P"
+            level: Trigger level in volts
+            line_number: Line number for LINE mode (1-625 for PAL, 1-525 for NTSC)
+
+        Returns:
+            Complete video trigger configuration
+        """
+        # Validate LINE mode requires line_number
+        if mode == "LINE" and line_number is None:
+            raise ValueError("line_number is required when mode='LINE'")
+
+        # Set trigger mode to VIDEO
+        scope.instrument.write(":TRIG:MODE VID")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:VID:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map polarity to SCPI format
+        polarity_map = {
+            "POSITIVE": "POS",
+            "NEGATIVE": "NEG",
+        }
+        scope.instrument.write(f":TRIG:VID:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map mode to SCPI format
+        mode_map = {
+            "ODD_FIELD": "ODDF",
+            "EVEN_FIELD": "EVENF",
+            "LINE": "LINE",
+            "ALL_LINES": "ALIN",
+        }
+        scope.instrument.write(f":TRIG:VID:MODE {mode_map[mode]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set line number if LINE mode
+        if mode == "LINE" and line_number is not None:
+            scope.instrument.write(f":TRIG:VID:LINE {line_number}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map standard to SCPI format
+        standard_map = {
+            "PAL_SECAM": "PALS",
+            "NTSC": "NTSC",
+            "480P": "480P",
+            "576P": "576P",
+        }
+        scope.instrument.write(f":TRIG:VID:STAN {standard_map[standard]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set trigger level
+        scope.instrument.write(f":TRIG:VID:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(":TRIG:VID:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_polarity = scope.instrument.query(":TRIG:VID:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_mode = scope.instrument.query(":TRIG:VID:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_standard = scope.instrument.query(":TRIG:VID:STAN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_level = float(scope.instrument.query(":TRIG:VID:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channel from source
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Read line number if LINE mode
+        actual_line: Optional[int] = None
+        if mode == "LINE":
+            actual_line = int(scope.instrument.query(":TRIG:VID:LINE?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Map responses back
+        polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+        mode_reverse = {"ODDF": "ODD_FIELD", "EVENF": "EVEN_FIELD", "LINE": "LINE", "ALIN": "ALL_LINES"}
+        standard_reverse = {"PALS": "PAL_SECAM", "NTSC": "NTSC", "480P": "480P", "576P": "576P"}
+
+        return VideoTriggerResult(
+            trigger_mode="VIDEO",
+            channel=actual_channel,
+            polarity=polarity_reverse.get(actual_polarity, polarity),
+            mode=mode_reverse.get(actual_mode, mode),
+            line_number=actual_line,
+            standard=standard_reverse.get(actual_standard, standard),
+            level=actual_level,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_pattern_trigger(
+        pattern: Annotated[
+            List[str],
+            Field(description="4-element pattern list with values: H (high), L (low), X (don't care), R (rising), F (falling)"),
+        ],
+        levels: Annotated[
+            dict[int, float],
+            Field(description="Dictionary mapping channel numbers (1-4) to trigger levels in volts, e.g., {1: 1.5, 2: 2.0}"),
+        ],
+    ) -> PatternTriggerResult:
+        """
+        Configure pattern trigger to detect multi-channel logic patterns.
+
+        Triggers when multi-channel logic pattern is met. Combines up to 4 channels with AND logic.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE PATTern
+        - :TRIGger:PATTern:PATTern <ch1>,<ch2>,<ch3>,<ch4>
+        - :TRIGger:PATTern:LEVel<n> <voltage> (for each channel)
+
+        Pattern values per channel:
+        - H: High (above threshold)
+        - L: Low (below threshold)
+        - X: Don't care
+        - R: Rising edge
+        - F: Falling edge
+
+        Args:
+            pattern: 4-element list of pattern values, e.g., ["H", "L", "X", "R"]
+            levels: Dictionary of trigger levels per channel, e.g., {1: 1.5, 2: 2.0, 4: 1.8}
+
+        Returns:
+            Complete pattern trigger configuration
+
+        Use cases:
+        - Multi-signal qualification
+        - State machine debugging
+        - Bus protocol analysis
+        """
+        # Validate pattern length
+        if len(pattern) != 4:
+            raise ValueError(f"Pattern must have exactly 4 elements, got {len(pattern)}")
+
+        # Validate pattern values
+        valid_values = {"H", "L", "X", "R", "F"}
+        for val in pattern:
+            if val not in valid_values:
+                raise ValueError(f"Invalid pattern value '{val}'. Must be one of: {valid_values}")
+
+        # Set trigger mode to PATTERN
+        scope.instrument.write(":TRIG:MODE PATT")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set pattern (comma-separated)
+        pattern_str = ",".join(pattern)
+        scope.instrument.write(f":TRIG:PATT:PATT {pattern_str}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set trigger levels for specified channels
+        for channel, level in levels.items():
+            if channel < 1 or channel > 4:
+                raise ValueError(f"Channel must be 1-4, got {channel}")
+            scope.instrument.write(f":TRIG:PATT:LEV{channel} {level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_pattern_str = scope.instrument.query(":TRIG:PATT:PATT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_pattern = actual_pattern_str.split(",")
+
+        # Read back levels for all channels
+        actual_levels = {}
+        for channel in range(1, 5):
+            try:
+                level = float(scope.instrument.query(f":TRIG:PATT:LEV{channel}?"))  # type: ignore[reportAttributeAccessIssue]
+                actual_levels[channel] = level
+            except:
+                pass  # Channel level may not be set
+
+        return PatternTriggerResult(
+            trigger_mode="PATTERN",
+            pattern=actual_pattern,
+            levels=actual_levels,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_runt_trigger(
+        channel: ChannelNumber,
+        polarity: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Runt pulse direction: POSITIVE or NEGATIVE"),
+        ],
+        when: Annotated[
+            Literal["GREATER", "LESS", "WITHIN"],
+            Field(description="Width qualification: GREATER, LESS, or WITHIN"),
+        ],
+        upper_width: Annotated[
+            float, Field(description="Upper width limit in seconds")
+        ],
+        lower_width: Annotated[
+            float, Field(description="Lower width limit in seconds")
+        ],
+        level_a: Annotated[float, Field(description="Upper voltage threshold")],
+        level_b: Annotated[float, Field(description="Lower voltage threshold")],
+    ) -> RuntTriggerResult:
+        """
+        Configure runt pulse trigger to detect incomplete transitions.
+
+        Triggers on runt pulses - pulses that cross one threshold but fail to reach
+        the other threshold before returning. Essential for signal integrity analysis.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE RUNT
+        - :TRIGger:RUNT:SOURce <channel>
+        - :TRIGger:RUNT:POLarity {POSitive|NEGative}
+        - :TRIGger:RUNT:WHEN {GREater|LESS|WITHin}
+        - :TRIGger:RUNT:UWIDth <time>
+        - :TRIGger:RUNT:LWIDth <time>
+        - :TRIGger:RUNT:ALEVel <voltage>
+        - :TRIGger:RUNT:BLEVel <voltage>
+
+        Args:
+            channel: Source channel (1-4)
+            polarity: Runt pulse direction - "POSITIVE" or "NEGATIVE"
+            when: Width qualification - "GREATER", "LESS", or "WITHIN"
+            upper_width: Upper width limit in seconds
+            lower_width: Lower width limit in seconds
+            level_a: Upper voltage threshold
+            level_b: Lower voltage threshold
+
+        Returns:
+            Complete runt trigger configuration
+
+        Use cases:
+        - Signal integrity analysis
+        - Detecting incomplete transitions
+        - Power supply glitches
+        """
+        # Set trigger mode to RUNT
+        scope.instrument.write(":TRIG:MODE RUNT")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:RUNT:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map polarity to SCPI format
+        polarity_map = {
+            "POSITIVE": "POS",
+            "NEGATIVE": "NEG",
+        }
+        scope.instrument.write(f":TRIG:RUNT:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map when condition to SCPI format
+        when_map = {
+            "GREATER": "GRE",
+            "LESS": "LESS",
+            "WITHIN": "WITH",
+        }
+        scope.instrument.write(f":TRIG:RUNT:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set width limits
+        scope.instrument.write(f":TRIG:RUNT:UWID {upper_width}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:RUNT:LWID {lower_width}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set voltage thresholds
+        scope.instrument.write(f":TRIG:RUNT:ALEV {level_a}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:RUNT:BLEV {level_b}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(":TRIG:RUNT:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_polarity = scope.instrument.query(":TRIG:RUNT:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_when = scope.instrument.query(":TRIG:RUNT:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_upper = float(scope.instrument.query(":TRIG:RUNT:UWID?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_lower = float(scope.instrument.query(":TRIG:RUNT:LWID?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level_a = float(scope.instrument.query(":TRIG:RUNT:ALEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level_b = float(scope.instrument.query(":TRIG:RUNT:BLEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channel from source
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Map responses back
+        polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+        when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+
+        return RuntTriggerResult(
+            trigger_mode="RUNT",
+            channel=actual_channel,
+            polarity=polarity_reverse.get(actual_polarity, polarity),
+            when=when_reverse.get(actual_when, when),
+            upper_width=actual_upper,
+            lower_width=actual_lower,
+            level_a=actual_level_a,
+            level_b=actual_level_b,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_timeout_trigger(
+        channel: ChannelNumber,
+        slope: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Edge to start timeout counter: POSITIVE or NEGATIVE"),
+        ],
+        timeout: Annotated[
+            float, Field(description="Idle time in seconds before trigger")
+        ],
+        level: Annotated[float, Field(description="Trigger level in volts")],
+    ) -> TimeoutTriggerResult:
+        """
+        Configure timeout/idle trigger to detect when signal remains idle.
+
+        Triggers when signal remains idle (no edge) for specified duration.
+        Essential for detecting bus stalls and protocol timeouts.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE TIMeout
+        - :TRIGger:TIMeout:SOURce <channel>
+        - :TRIGger:TIMeout:SLOPe {POSitive|NEGative}
+        - :TRIGger:TIMeout:TIMeout <time>
+        - :TRIGger:TIMeout:LEVel <voltage>
+
+        Args:
+            channel: Source channel (1-4)
+            slope: Edge to start timeout counter - "POSITIVE" or "NEGATIVE"
+            timeout: Idle time in seconds before trigger
+            level: Trigger level in volts
+
+        Returns:
+            Complete timeout trigger configuration
+
+        Use cases:
+        - Detecting bus stalls
+        - Finding protocol timeouts
+        - Analyzing idle periods
+        """
+        # Set trigger mode to TIMEOUT
+        scope.instrument.write(":TRIG:MODE TIM")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:TIM:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map slope to SCPI format
+        slope_map = {
+            "POSITIVE": "POS",
+            "NEGATIVE": "NEG",
+        }
+        scope.instrument.write(f":TRIG:TIM:SLOP {slope_map[slope]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set timeout duration
+        scope.instrument.write(f":TRIG:TIM:TIM {timeout}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set trigger level
+        scope.instrument.write(f":TRIG:TIM:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(":TRIG:TIM:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_slope = scope.instrument.query(":TRIG:TIM:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_timeout = float(scope.instrument.query(":TRIG:TIM:TIM?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level = float(scope.instrument.query(":TRIG:TIM:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channel from source
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Map responses back
+        slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+
+        return TimeoutTriggerResult(
+            trigger_mode="TIMEOUT",
+            channel=actual_channel,
+            slope=slope_reverse.get(actual_slope, slope),
+            timeout=actual_timeout,
+            level=actual_level,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_duration_trigger(
+        channel: ChannelNumber,
+        pattern_type: Annotated[
+            Literal["GREATER", "LESS", "WITHIN"],
+            Field(description="Pattern qualifier: GREATER, LESS, or WITHIN"),
+        ],
+        when: Annotated[
+            Literal["GREATER", "LESS", "WITHIN"],
+            Field(description="Duration condition: GREATER, LESS, or WITHIN"),
+        ],
+        upper_width: Annotated[
+            float, Field(description="Upper time limit in seconds")
+        ],
+        lower_width: Annotated[
+            float, Field(description="Lower time limit in seconds")
+        ],
+        level: Annotated[float, Field(description="Trigger level in volts")],
+    ) -> DurationTriggerResult:
+        """
+        Configure duration trigger for pattern that persists for specific duration.
+
+        Triggers on pattern that persists for specific duration.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE DURation
+        - :TRIGger:DURation:SOURce <channel>
+        - :TRIGger:DURation:TYPE {GREater|LESS|WITHin}
+        - :TRIGger:DURation:WHEN {GREater|LESS|WITHin}
+        - :TRIGger:DURation:UWIDth <time>
+        - :TRIGger:DURation:LWIDth <time>
+        - :TRIGger:DURation:LEVel <voltage>
+
+        Args:
+            channel: Source channel (1-4)
+            pattern_type: Pattern qualifier - "GREATER", "LESS", or "WITHIN"
+            when: Duration condition - "GREATER", "LESS", or "WITHIN"
+            upper_width: Upper time limit in seconds
+            lower_width: Lower time limit in seconds
+            level: Trigger level in volts
+
+        Returns:
+            Complete duration trigger configuration
+        """
+        # Set trigger mode to DURATION
+        scope.instrument.write(":TRIG:MODE DUR")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:DUR:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map conditions to SCPI format
+        condition_map = {
+            "GREATER": "GRE",
+            "LESS": "LESS",
+            "WITHIN": "WITH",
+        }
+        scope.instrument.write(f":TRIG:DUR:TYPE {condition_map[pattern_type]}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:DUR:WHEN {condition_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set time limits
+        scope.instrument.write(f":TRIG:DUR:UWID {upper_width}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:DUR:LWID {lower_width}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set trigger level
+        scope.instrument.write(f":TRIG:DUR:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(":TRIG:DUR:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_type = scope.instrument.query(":TRIG:DUR:TYPE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_when = scope.instrument.query(":TRIG:DUR:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_upper = float(scope.instrument.query(":TRIG:DUR:UWID?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_lower = float(scope.instrument.query(":TRIG:DUR:LWID?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level = float(scope.instrument.query(":TRIG:DUR:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channel from source
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Map responses back
+        condition_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+
+        return DurationTriggerResult(
+            trigger_mode="DURATION",
+            channel=actual_channel,
+            pattern_type=condition_reverse.get(actual_type, pattern_type),
+            when=condition_reverse.get(actual_when, when),
+            upper_width=actual_upper,
+            lower_width=actual_lower,
+            level=actual_level,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_setup_hold_trigger(
+        data_channel: ChannelNumber,
+        clock_channel: ChannelNumber,
+        clock_slope: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Clock edge to check: POSITIVE or NEGATIVE"),
+        ],
+        data_pattern: Annotated[
+            Literal["H", "L"],
+            Field(description="Expected data value: H (high) or L (low)"),
+        ],
+        setup_time: Annotated[
+            float, Field(description="Minimum setup time in seconds")
+        ],
+        hold_time: Annotated[
+            float, Field(description="Minimum hold time in seconds")
+        ],
+        data_level: Annotated[float, Field(description="Data threshold voltage")],
+        clock_level: Annotated[float, Field(description="Clock threshold voltage")],
+    ) -> SetupHoldTriggerResult:
+        """
+        Configure setup/hold trigger for timing violations.
+
+        Triggers on setup/hold time violations between data and clock signals.
+        Essential for verifying timing relationships in synchronous interfaces.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE SHOLd
+        - :TRIGger:SHOLd:DSrc <channel>
+        - :TRIGger:SHOLd:CSrc <channel>
+        - :TRIGger:SHOLd:SLOPe {POSitive|NEGative}
+        - :TRIGger:SHOLd:PATTern {H|L}
+        - :TRIGger:SHOLd:STIMe <time>
+        - :TRIGger:SHOLd:HTIMe <time>
+        - :TRIGger:SHOLd:DLEVel <voltage>
+        - :TRIGger:SHOLd:CLEVel <voltage>
+
+        Args:
+            data_channel: Data signal channel (1-4)
+            clock_channel: Clock signal channel (1-4)
+            clock_slope: Clock edge to check - "POSITIVE" or "NEGATIVE"
+            data_pattern: Expected data value - "H" or "L"
+            setup_time: Minimum setup time in seconds
+            hold_time: Minimum hold time in seconds
+            data_level: Data threshold voltage
+            clock_level: Clock threshold voltage
+
+        Returns:
+            Complete setup/hold trigger configuration
+
+        Use cases:
+        - Verifying timing relationships
+        - Debugging synchronous interfaces
+        - Validating memory timing
+        """
+        # Set trigger mode to SETUP/HOLD
+        scope.instrument.write(":TRIG:MODE SHOL")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data and clock sources
+        scope.instrument.write(f":TRIG:SHOL:DSRC CHAN{data_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:SHOL:CSRC CHAN{clock_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map clock slope to SCPI format
+        slope_map = {
+            "POSITIVE": "POS",
+            "NEGATIVE": "NEG",
+        }
+        scope.instrument.write(f":TRIG:SHOL:SLOP {slope_map[clock_slope]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data pattern
+        scope.instrument.write(f":TRIG:SHOL:PATT {data_pattern}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set setup and hold times
+        scope.instrument.write(f":TRIG:SHOL:STIM {setup_time}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:SHOL:HTIM {hold_time}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set voltage levels
+        scope.instrument.write(f":TRIG:SHOL:DLEV {data_level}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:SHOL:CLEV {clock_level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_dsrc = scope.instrument.query(":TRIG:SHOL:DSRC?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_csrc = scope.instrument.query(":TRIG:SHOL:CSRC?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_slope = scope.instrument.query(":TRIG:SHOL:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_pattern = scope.instrument.query(":TRIG:SHOL:PATT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_setup = float(scope.instrument.query(":TRIG:SHOL:STIM?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_hold = float(scope.instrument.query(":TRIG:SHOL:HTIM?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_dlev = float(scope.instrument.query(":TRIG:SHOL:DLEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_clev = float(scope.instrument.query(":TRIG:SHOL:CLEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channels from source
+        actual_data_channel = _parse_channel_from_scpi(actual_dsrc)
+        actual_clock_channel = _parse_channel_from_scpi(actual_csrc)
+
+        # Map responses back
+        slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+
+        return SetupHoldTriggerResult(
+            trigger_mode="SETUP_HOLD",
+            data_channel=actual_data_channel,
+            clock_channel=actual_clock_channel,
+            clock_slope=slope_reverse.get(actual_slope, clock_slope),
+            data_pattern=actual_pattern,
+            setup_time=actual_setup,
+            hold_time=actual_hold,
+            data_level=actual_dlev,
+            clock_level=actual_clev,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_nth_edge_trigger(
+        channel: ChannelNumber,
+        slope: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Edge direction to count: POSITIVE or NEGATIVE"),
+        ],
+        idle_time: Annotated[
+            float, Field(description="Minimum idle time in seconds before starting count")
+        ],
+        edge_count: Annotated[
+            int, Field(description="Which edge number to trigger on (1-65535)")
+        ],
+        level: Annotated[float, Field(description="Trigger level in volts")],
+    ) -> NthEdgeTriggerResult:
+        """
+        Configure Nth edge trigger for burst signals.
+
+        Triggers on the Nth edge after an idle period. Useful for triggering
+        inside burst transmissions and skipping preamble/sync edges.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE NEDGe
+        - :TRIGger:NEDGe:SOURce <channel>
+        - :TRIGger:NEDGe:SLOPe {POSitive|NEGative}
+        - :TRIGger:NEDGe:IDLE <time>
+        - :TRIGger:NEDGe:EDGE <count>
+        - :TRIGger:NEDGe:LEVel <voltage>
+
+        Args:
+            channel: Source channel (1-4)
+            slope: Edge direction to count - "POSITIVE" or "NEGATIVE"
+            idle_time: Minimum idle time in seconds before starting count
+            edge_count: Which edge number to trigger on (1-65535)
+            level: Trigger level in volts
+
+        Returns:
+            Complete Nth edge trigger configuration
+
+        Use cases:
+        - Triggering inside burst transmissions
+        - Skipping preamble/sync edges
+        - Analyzing periodic burst signals
+        """
+        # Validate edge count range
+        if edge_count < 1 or edge_count > 65535:
+            raise ValueError(f"edge_count must be 1-65535, got {edge_count}")
+
+        # Set trigger mode to NTH EDGE
+        scope.instrument.write(":TRIG:MODE NEDG")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:NEDG:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map slope to SCPI format
+        slope_map = {
+            "POSITIVE": "POS",
+            "NEGATIVE": "NEG",
+        }
+        scope.instrument.write(f":TRIG:NEDG:SLOP {slope_map[slope]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set idle time and edge count
+        scope.instrument.write(f":TRIG:NEDG:IDLE {idle_time}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:NEDG:EDGE {edge_count}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set trigger level
+        scope.instrument.write(f":TRIG:NEDG:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(":TRIG:NEDG:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_slope = scope.instrument.query(":TRIG:NEDG:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_idle = float(scope.instrument.query(":TRIG:NEDG:IDLE?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_count = int(scope.instrument.query(":TRIG:NEDG:EDGE?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level = float(scope.instrument.query(":TRIG:NEDG:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channel from source
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Map responses back
+        slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+
+        return NthEdgeTriggerResult(
+            trigger_mode="NTH_EDGE",
+            channel=actual_channel,
+            slope=slope_reverse.get(actual_slope, slope),
+            idle_time=actual_idle,
+            edge_count=actual_count,
+            level=actual_level,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_window_trigger(
+        channel: ChannelNumber,
+        slope: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Edge direction: POSITIVE or NEGATIVE"),
+        ],
+        position: Annotated[
+            Literal["EXIT", "ENTER", "TIME"],
+            Field(description="Trigger position: EXIT, ENTER, or TIME"),
+        ],
+        level_a: Annotated[float, Field(description="Upper voltage threshold")],
+        level_b: Annotated[float, Field(description="Lower voltage threshold")],
+        time: Annotated[
+            Optional[float],
+            Field(description="Duration for TIME position mode (seconds, required for TIME)"),
+        ] = None,
+    ) -> WindowTriggerResult:
+        """
+        Configure window trigger for voltage window entry/exit detection.
+
+        Triggers when signal enters or exits voltage window between two thresholds.
+        Essential for power supply regulation analysis and detecting over/under voltage.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE WINDows
+        - :TRIGger:WINDows:SOURce <channel>
+        - :TRIGger:WINDows:SLOPe {POSitive|NEGative}
+        - :TRIGger:WINDows:POSition {EXIT|ENTER|TIME}
+        - :TRIGger:WINDows:TIME <time> (for TIME position)
+        - :TRIGger:WINDows:ALEVel <voltage>
+        - :TRIGger:WINDows:BLEVel <voltage>
+
+        Args:
+            channel: Source channel (1-4)
+            slope: Edge direction - "POSITIVE" or "NEGATIVE"
+            position: Trigger position - "EXIT", "ENTER", or "TIME"
+            level_a: Upper voltage threshold
+            level_b: Lower voltage threshold
+            time: Duration for TIME position mode (seconds, required for TIME)
+
+        Returns:
+            Complete window trigger configuration
+
+        Use cases:
+        - Power supply regulation analysis
+        - Detecting over/under voltage
+        - Tracking signal excursions
+        """
+        # Validate TIME position requires time
+        if position == "TIME" and time is None:
+            raise ValueError("time is required when position='TIME'")
+
+        # Set trigger mode to WINDOW
+        scope.instrument.write(":TRIG:MODE WIND")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:WIND:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map slope to SCPI format
+        slope_map = {
+            "POSITIVE": "POS",
+            "NEGATIVE": "NEG",
+        }
+        scope.instrument.write(f":TRIG:WIND:SLOP {slope_map[slope]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set position
+        scope.instrument.write(f":TRIG:WIND:POS {position}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set time if TIME position
+        if position == "TIME" and time is not None:
+            scope.instrument.write(f":TRIG:WIND:TIME {time}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set voltage thresholds
+        scope.instrument.write(f":TRIG:WIND:ALEV {level_a}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:WIND:BLEV {level_b}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(":TRIG:WIND:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_slope = scope.instrument.query(":TRIG:WIND:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_position = scope.instrument.query(":TRIG:WIND:POS?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_level_a = float(scope.instrument.query(":TRIG:WIND:ALEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level_b = float(scope.instrument.query(":TRIG:WIND:BLEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channel from source
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Read time if TIME position
+        actual_time: Optional[float] = None
+        if position == "TIME":
+            actual_time = float(scope.instrument.query(":TRIG:WIND:TIME?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Map responses back
+        slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+
+        return WindowTriggerResult(
+            trigger_mode="WINDOW",
+            channel=actual_channel,
+            slope=slope_reverse.get(actual_slope, slope),
+            position=actual_position,
+            time=actual_time,
+            level_a=actual_level_a,
+            level_b=actual_level_b,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_delay_trigger(
+        source_a_channel: ChannelNumber,
+        source_b_channel: ChannelNumber,
+        slope_a: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Source A edge direction: POSITIVE or NEGATIVE"),
+        ],
+        slope_b: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Source B edge direction: POSITIVE or NEGATIVE"),
+        ],
+        delay_type: Annotated[
+            Literal["GREATER", "LESS", "WITHIN"],
+            Field(description="Delay condition: GREATER, LESS, or WITHIN"),
+        ],
+        upper_time: Annotated[
+            float, Field(description="Upper time limit in seconds")
+        ],
+        level_a: Annotated[float, Field(description="Source A threshold voltage")],
+        level_b: Annotated[float, Field(description="Source B threshold voltage")],
+        lower_time: Annotated[
+            Optional[float],
+            Field(description="Lower time limit in seconds (required for WITHIN)"),
+        ] = None,
+    ) -> DelayTriggerResult:
+        """
+        Configure delay trigger for time delay between two signal edges.
+
+        Triggers on time delay between two signal edges. Essential for measuring
+        propagation delays, detecting timing skew, and verifying signal sequencing.
+
+        Complete SCPI sequence executed:
+        - :TRIGger:MODE DELay
+        - :TRIGger:DELay:SA <channel>
+        - :TRIGger:DELay:SB <channel>
+        - :TRIGger:DELay:SLOPea {POSitive|NEGative}
+        - :TRIGger:DELay:SLOPeb {POSitive|NEGative}
+        - :TRIGger:DELay:TYPe {GREater|LESS|WITHin}
+        - :TRIGger:DELay:TUPPer <time>
+        - :TRIGger:DELay:TLOWer <time> (for WITHIN)
+        - :TRIGger:DELay:LEVela <voltage>
+        - :TRIGger:DELay:LEVelb <voltage>
+
+        Args:
+            source_a_channel: First signal channel (1-4)
+            source_b_channel: Second signal channel (1-4)
+            slope_a: Source A edge direction - "POSITIVE" or "NEGATIVE"
+            slope_b: Source B edge direction - "POSITIVE" or "NEGATIVE"
+            delay_type: Delay condition - "GREATER", "LESS", or "WITHIN"
+            upper_time: Upper time limit in seconds
+            level_a: Source A threshold voltage
+            level_b: Source B threshold voltage
+            lower_time: Lower time limit in seconds (required for WITHIN)
+
+        Returns:
+            Complete delay trigger configuration
+
+        Use cases:
+        - Measuring propagation delays
+        - Detecting timing skew
+        - Verifying signal sequencing
+        """
+        # Validate WITHIN requires lower_time
+        if delay_type == "WITHIN" and lower_time is None:
+            raise ValueError("lower_time is required when delay_type='WITHIN'")
+
+        # Set trigger mode to DELAY
+        scope.instrument.write(":TRIG:MODE DEL")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channels
+        scope.instrument.write(f":TRIG:DEL:SA CHAN{source_a_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:DEL:SB CHAN{source_b_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map slopes to SCPI format
+        slope_map = {
+            "POSITIVE": "POS",
+            "NEGATIVE": "NEG",
+        }
+        scope.instrument.write(f":TRIG:DEL:SLOPA {slope_map[slope_a]}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:DEL:SLOPB {slope_map[slope_b]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map delay type to SCPI format
+        type_map = {
+            "GREATER": "GRE",
+            "LESS": "LESS",
+            "WITHIN": "WITH",
+        }
+        scope.instrument.write(f":TRIG:DEL:TYPE {type_map[delay_type]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set time limits
+        scope.instrument.write(f":TRIG:DEL:TUPP {upper_time}")  # type: ignore[reportAttributeAccessIssue]
+        if delay_type == "WITHIN" and lower_time is not None:
+            scope.instrument.write(f":TRIG:DEL:TLOW {lower_time}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set voltage levels
+        scope.instrument.write(f":TRIG:DEL:LEVA {level_a}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:DEL:LEVB {level_b}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_sa = scope.instrument.query(":TRIG:DEL:SA?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_sb = scope.instrument.query(":TRIG:DEL:SB?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_slope_a = scope.instrument.query(":TRIG:DEL:SLOPA?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_slope_b = scope.instrument.query(":TRIG:DEL:SLOPB?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_type = scope.instrument.query(":TRIG:DEL:TYPE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_upper = float(scope.instrument.query(":TRIG:DEL:TUPP?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level_a = float(scope.instrument.query(":TRIG:DEL:LEVA?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level_b = float(scope.instrument.query(":TRIG:DEL:LEVB?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channels from source
+        actual_source_a = _parse_channel_from_scpi(actual_sa)
+        actual_source_b = _parse_channel_from_scpi(actual_sb)
+
+        # Read lower time if WITHIN
+        actual_lower: Optional[float] = None
+        if delay_type == "WITHIN":
+            actual_lower = float(scope.instrument.query(":TRIG:DEL:TLOW?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Map responses back
+        slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+        type_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+
+        return DelayTriggerResult(
+            trigger_mode="DELAY",
+            source_a_channel=actual_source_a,
+            source_b_channel=actual_source_b,
+            slope_a=slope_reverse.get(actual_slope_a, slope_a),
+            slope_b=slope_reverse.get(actual_slope_b, slope_b),
+            delay_type=type_reverse.get(actual_type, delay_type),
+            upper_time=actual_upper,
+            lower_time=actual_lower,
+            level_a=actual_level_a,
+            level_b=actual_level_b,
+        )
 
     # === MEMORY & ACQUISITION SETTINGS ===
 
