@@ -109,6 +109,24 @@ EdgeCountField = Annotated[int, Field(description="Which edge number to trigger 
 TimeConditionField = Annotated[str, Field(description="Time condition (GREATER, LESS, or WITHIN)")]
 WidthConditionField = Annotated[str, Field(description="Width condition (GREATER, LESS, or WITHIN)")]
 
+# === PRIORITY 1 TOOL TYPE ALIASES ===
+
+# Acquisition-related fields
+AveragesCountField = Annotated[int, Field(description="Number of averages (2-65536)", ge=2, le=65536)]
+UltraTimeoutField = Annotated[float, Field(description="Timeout duration in seconds")]
+MaxFramesField = Annotated[int, Field(description="Maximum frames to capture")]
+
+# Channel-related fields
+ChannelLabelField = Annotated[str, Field(description="Custom label string (max 4 characters)", max_length=4)]
+
+# Delayed timebase fields
+DelayedTimeScaleField = Annotated[float, Field(description="Zoom window time per division in seconds")]
+DelayedTimeOffsetField = Annotated[float, Field(description="Zoom window offset in seconds")]
+
+# Hardware counter fields
+CounterDigitsField = Annotated[int, Field(description="Resolution (5 or 6 digits)", ge=5, le=6)]
+CounterValueField = Annotated[float, Field(description="Current counter reading")]
+
 
 class AcquisitionType(str, Enum):
     """Acquisition type modes."""
@@ -270,6 +288,38 @@ class DVMMode(str, Enum):
             self.AC_DC_RMS: "AC+DC RMS (true RMS)",
         }
         return descriptions[self]
+
+
+class UltraAcquisitionMode(str, Enum):
+    """Ultra Acquisition modes for high-speed waveform capture."""
+
+    EDGE = "EDGE"  # Edge mode - triggers on edges
+    PULSE = "PULSe"  # Pulse mode - triggers on pulses
+
+
+class TimebaseMode(str, Enum):
+    """Timebase display modes."""
+
+    MAIN = "MAIN"  # Normal YT mode
+    XY = "XY"  # Lissajous/XY mode (Ch1 = X axis, Ch2 = Y axis)
+    ROLL = "ROLL"  # Slow sweep roll mode (for low frequencies)
+
+
+class ChannelUnits(str, Enum):
+    """Channel voltage display units."""
+
+    VOLT = "VOLt"
+    WATT = "WATT"
+    AMPERE = "AMPere"
+    UNKNOWN = "UNKNown"
+
+
+class HardwareCounterMode(str, Enum):
+    """Hardware counter measurement modes."""
+
+    FREQUENCY = "FREQuency"  # Measures signal frequency (Hz)
+    PERIOD = "PERiod"  # Measures signal period (seconds)
+    TOTALIZE = "TOTalize"  # Counts total rising/falling edges
 
 
 class TimeCondition(str, Enum):
@@ -657,6 +707,121 @@ class SampleRateResult(TypedDict):
     sample_rate: Annotated[float, Field(description="Sample rate in Sa/s")]
     sample_rate_str: HumanReadableSampleRateField
     units: SampleRateUnitsField
+
+
+# === PRIORITY 1 TOOL RESULTS ===
+
+# Acquisition settings results
+class AcquisitionAveragesResult(TypedDict):
+    """Result for acquisition averages settings."""
+
+    averages: AveragesCountField
+    message: Annotated[str, Field(description="Status message")]
+
+
+class UltraAcquisitionResult(TypedDict):
+    """Result for Ultra Acquisition configuration."""
+
+    mode: Annotated[UltraAcquisitionMode, Field(description="Ultra mode (EDGE or PULSE)")]
+    timeout: UltraTimeoutField
+    max_frames: MaxFramesField
+    message: Annotated[str, Field(description="Configuration summary")]
+
+
+# Channel settings results
+class ChannelInvertResult(TypedDict):
+    """Result for channel invert settings."""
+
+    channel: ChannelNumber
+    inverted: Annotated[bool, Field(description="Channel is inverted")]
+
+
+class ChannelLabelResult(TypedDict):
+    """Result for channel label settings."""
+
+    channel: ChannelNumber
+    label: ChannelLabelField
+
+
+class ChannelLabelVisibilityResult(TypedDict):
+    """Result for channel label visibility settings."""
+
+    channel: ChannelNumber
+    visible: Annotated[bool, Field(description="Label is visible")]
+
+
+class ChannelVernierResult(TypedDict):
+    """Result for channel vernier mode settings."""
+
+    channel: ChannelNumber
+    vernier: Annotated[bool, Field(description="True for fine adjustment, False for coarse")]
+
+
+class ChannelUnitsResult(TypedDict):
+    """Result for channel units settings."""
+
+    channel: ChannelNumber
+    units: Annotated[ChannelUnits, Field(description="Display units")]
+
+
+# Timebase settings results
+class TimebaseModeResult(TypedDict):
+    """Result for timebase mode settings."""
+
+    mode: Annotated[TimebaseMode, Field(description="Timebase mode (MAIN, XY, or ROLL)")]
+
+
+class DelayedTimebaseEnableResult(TypedDict):
+    """Result for delayed timebase enable settings."""
+
+    enabled: Annotated[bool, Field(description="Delayed timebase is enabled")]
+
+
+class DelayedTimebaseScaleResult(TypedDict):
+    """Result for delayed timebase scale settings."""
+
+    time_per_div: DelayedTimeScaleField
+    time_per_div_str: HumanReadableTimeField
+
+
+class DelayedTimebaseOffsetResult(TypedDict):
+    """Result for delayed timebase offset settings."""
+
+    time_offset: DelayedTimeOffsetField
+    units: TimeUnitsField
+
+
+class TimebaseVernierResult(TypedDict):
+    """Result for timebase vernier settings."""
+
+    vernier: Annotated[bool, Field(description="True for fine adjustment, False for coarse")]
+
+
+# Hardware counter results
+class HardwareCounterConfigResult(TypedDict):
+    """Result for hardware counter configuration."""
+
+    enabled: Annotated[bool, Field(description="Counter is enabled")]
+    channel: ChannelNumber
+    mode: Annotated[HardwareCounterMode, Field(description="Counter mode")]
+    digits: CounterDigitsField
+    totalize_enabled: Annotated[bool, Field(description="Statistics enabled")]
+    current_value: Annotated[Optional[float], Field(description="Current counter reading")]
+    unit: GenericUnitsField
+    message: Annotated[str, Field(description="Configuration summary")]
+
+
+class HardwareCounterValueResult(TypedDict):
+    """Result for hardware counter reading."""
+
+    value: CounterValueField
+    unit: GenericUnitsField
+
+
+class CounterTotalizeResetResult(TypedDict):
+    """Result for counter totalize reset."""
+
+    message: Annotated[str, Field(description="Reset confirmation")]
 
 
 # Trigger results
@@ -1987,6 +2152,134 @@ def create_server(temp_dir: str) -> FastMCP:
             units=units,
         )
 
+    # === PRIORITY 1: CHANNEL SETTINGS ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_channel_invert(
+        channel: ChannelNumber,
+        inverted: Annotated[bool, Field(description="Boolean to invert")]
+    ) -> ChannelInvertResult:
+        """
+        Invert channel waveform display (multiply by -1).
+
+        Args:
+            channel: Channel number (1-4)
+            inverted: Boolean to invert
+
+        Returns:
+            Channel invert status
+        """
+        scope.instrument.write(f":CHAN{channel}:INV {'ON' if inverted else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_invert = bool(int(scope.instrument.query(f":CHAN{channel}:INV?")))  # type: ignore[reportAttributeAccessIssue]
+
+        return ChannelInvertResult(channel=channel, inverted=actual_invert)
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_channel_label(
+        channel: ChannelNumber,
+        label: ChannelLabelField
+    ) -> ChannelLabelResult:
+        """
+        Set custom channel label text.
+
+        Args:
+            channel: Channel number (1-4)
+            label: Custom label string (max 4 characters)
+
+        Returns:
+            Current channel label
+        """
+        scope.instrument.write(f':CHAN{channel}:LAB:CONT "{label}"')  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_label = scope.instrument.query(f":CHAN{channel}:LAB:CONT?").strip().strip('"')  # type: ignore[reportAttributeAccessIssue]
+
+        return ChannelLabelResult(channel=channel, label=actual_label)
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_channel_label_visible(
+        channel: ChannelNumber,
+        visible: Annotated[bool, Field(description="Boolean to show/hide")]
+    ) -> ChannelLabelVisibilityResult:
+        """
+        Show or hide custom channel label.
+
+        Args:
+            channel: Channel number (1-4)
+            visible: Boolean to show/hide
+
+        Returns:
+            Label visibility status
+        """
+        scope.instrument.write(f":CHAN{channel}:LAB:SHOW {'ON' if visible else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_visible = bool(int(scope.instrument.query(f":CHAN{channel}:LAB:SHOW?")))  # type: ignore[reportAttributeAccessIssue]
+
+        return ChannelLabelVisibilityResult(channel=channel, visible=actual_visible)
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_channel_vernier(
+        channel: ChannelNumber,
+        fine_mode: Annotated[bool, Field(description="True for fine adjustment, False for coarse (1-2-5 sequence)")]
+    ) -> ChannelVernierResult:
+        """
+        Enable fine (vernier) or coarse vertical scale adjustment.
+
+        When vernier is ON, vertical scale can be set to any value. When OFF, scale follows 1-2-5 sequence.
+
+        Args:
+            channel: Channel number (1-4)
+            fine_mode: Boolean - True for fine adjustment, False for coarse (1-2-5 sequence)
+
+        Returns:
+            Vernier mode status
+        """
+        scope.instrument.write(f":CHAN{channel}:VERN {'ON' if fine_mode else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_vernier = bool(int(scope.instrument.query(f":CHAN{channel}:VERN?")))  # type: ignore[reportAttributeAccessIssue]
+
+        return ChannelVernierResult(channel=channel, vernier=actual_vernier)
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_channel_units(
+        channel: ChannelNumber,
+        units: Annotated[ChannelUnits, Field(description='Unit type ("VOLT", "WATT", "AMPERE", "UNKNOWN")')]
+    ) -> ChannelUnitsResult:
+        """
+        Set voltage display units for channel.
+
+        Args:
+            channel: Channel number (1-4)
+            units: Unit type ("VOLT", "WATT", "AMPERE", "UNKNOWN")
+
+        Returns:
+            Current channel units
+        """
+        scope.instrument.write(f":CHAN{channel}:UNIT {units.value}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_units_str = scope.instrument.query(f":CHAN{channel}:UNIT?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        # Map SCPI response to enum
+        units_map = {
+            "VOLT": ChannelUnits.VOLT,
+            "WATT": ChannelUnits.WATT,
+            "AMP": ChannelUnits.AMPERE,
+            "UNKN": ChannelUnits.UNKNOWN,
+        }
+        actual_units = units_map.get(actual_units_str[:4], ChannelUnits.VOLT)
+
+        return ChannelUnitsResult(channel=channel, units=actual_units)
+
     # === SCALE ADJUSTMENT TOOLS ===
 
     @mcp.tool
@@ -2115,6 +2408,142 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_offset = float(scope.instrument.query(":TIM:MAIN:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
 
         return TimebaseOffsetResult(time_offset=actual_offset, units="s")
+
+    # === PRIORITY 1: TIMEBASE SETTINGS ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_timebase_mode(
+        mode: Annotated[TimebaseMode, Field(description='Timebase mode ("MAIN", "XY", "ROLL")')]
+    ) -> TimebaseModeResult:
+        """
+        Set timebase display mode.
+
+        - **MAIN**: Normal YT mode
+        - **XY**: Lissajous/XY mode (Ch1 = X axis, Ch2 = Y axis)
+        - **ROLL**: Slow sweep roll mode (for low frequencies)
+
+        Args:
+            mode: Timebase mode ("MAIN", "XY", "ROLL")
+
+        Returns:
+            Current timebase mode
+        """
+        scope.instrument.write(f":TIM:MODE {mode.value}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_mode_str = scope.instrument.query(":TIM:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        # Map SCPI response to enum
+        mode_map = {
+            "MAIN": TimebaseMode.MAIN,
+            "XY": TimebaseMode.XY,
+            "ROLL": TimebaseMode.ROLL,
+        }
+        actual_mode = mode_map.get(actual_mode_str, TimebaseMode.MAIN)
+
+        return TimebaseModeResult(mode=actual_mode)
+
+    @mcp.tool
+    @with_scope_connection
+    async def enable_delayed_timebase(
+        enabled: Annotated[bool, Field(description="Boolean to enable zoom window")]
+    ) -> DelayedTimebaseEnableResult:
+        """
+        Enable or disable delayed/zoom timebase (zoomed window).
+
+        Args:
+            enabled: Boolean to enable zoom window
+
+        Returns:
+            Delayed timebase status
+        """
+        scope.instrument.write(f":TIM:DEL:ENAB {'ON' if enabled else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_enabled = bool(int(scope.instrument.query(":TIM:DEL:ENAB?")))  # type: ignore[reportAttributeAccessIssue]
+
+        return DelayedTimebaseEnableResult(enabled=actual_enabled)
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_delayed_timebase_scale(
+        time_per_div: DelayedTimeScaleField
+    ) -> DelayedTimebaseScaleResult:
+        """
+        Set zoom window horizontal scale (time/div).
+
+        Must enable delayed timebase first with enable_delayed_timebase(True).
+
+        Args:
+            time_per_div: Zoom window time per division in seconds
+
+        Returns:
+            Delayed timebase scale
+        """
+        scope.instrument.write(f":TIM:DEL:SCAL {time_per_div}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_scale = float(scope.instrument.query(":TIM:DEL:SCAL?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Convert to human-readable format
+        if actual_scale >= 1:
+            scale_str = f"{actual_scale:.2f} s/div"
+        elif actual_scale >= 1e-3:
+            scale_str = f"{actual_scale*1e3:.2f} ms/div"
+        elif actual_scale >= 1e-6:
+            scale_str = f"{actual_scale*1e6:.2f} μs/div"
+        else:
+            scale_str = f"{actual_scale*1e9:.2f} ns/div"
+
+        return DelayedTimebaseScaleResult(
+            time_per_div=actual_scale,
+            time_per_div_str=scale_str
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_delayed_timebase_offset(
+        time_offset: DelayedTimeOffsetField
+    ) -> DelayedTimebaseOffsetResult:
+        """
+        Set zoom window horizontal position.
+
+        Must enable delayed timebase first with enable_delayed_timebase(True).
+
+        Args:
+            time_offset: Zoom window offset in seconds
+
+        Returns:
+            Delayed timebase offset
+        """
+        scope.instrument.write(f":TIM:DEL:OFFS {time_offset}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_offset = float(scope.instrument.query(":TIM:DEL:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
+
+        return DelayedTimebaseOffsetResult(time_offset=actual_offset, units="s")
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_timebase_vernier(
+        fine_mode: Annotated[bool, Field(description="True for fine adjustment, False for coarse (1-2-5 sequence)")]
+    ) -> TimebaseVernierResult:
+        """
+        Enable fine (vernier) or coarse timebase adjustment.
+
+        Args:
+            fine_mode: Boolean - True for fine adjustment, False for coarse (1-2-5 sequence)
+
+        Returns:
+            Timebase vernier status
+        """
+        scope.instrument.write(f":TIM:VERN {'ON' if fine_mode else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_vernier = bool(int(scope.instrument.query(":TIM:VERN?")))  # type: ignore[reportAttributeAccessIssue]
+
+        return TimebaseVernierResult(vernier=actual_vernier)
 
     # === ACQUISITION CONTROL TOOLS ===
 
@@ -5093,6 +5522,81 @@ def create_server(temp_dir: str) -> FastMCP:
 
         return AcquisitionTypeResult(acquisition_type=map_acquisition_type(actual_type))
 
+    # === PRIORITY 1: ACQUISITION SETTINGS ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_acquisition_averages(averages: AveragesCountField) -> AcquisitionAveragesResult:
+        """
+        Set number of averages when acquisition type is AVERAGE.
+
+        Args:
+            averages: Number of averages (2-65536, power of 2 recommended)
+
+        Returns:
+            Current averages count
+
+        Note: Only applies when acquisition type is set to AVERAGE. Use with set_acquisition_type("AVERAGE").
+        """
+        scope.instrument.write(f":ACQ:AVER {averages}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify the setting
+        actual_averages = int(scope.instrument.query(":ACQ:AVER?"))  # type: ignore[reportAttributeAccessIssue]
+
+        return AcquisitionAveragesResult(
+            averages=actual_averages,
+            message=f"Averages set to {actual_averages}"
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_ultra_acquisition(
+        mode: Annotated[UltraAcquisitionMode, Field(description="Ultra mode (EDGE or PULSE)")],
+        timeout: UltraTimeoutField,
+        max_frames: MaxFramesField
+    ) -> UltraAcquisitionResult:
+        """
+        Configure Ultra Acquisition mode for high-speed waveform capture.
+
+        Ultra Acquisition mode captures waveforms at maximum speed for anomaly detection.
+
+        Args:
+            mode: Ultra mode ("EDGE" or "PULSE")
+            timeout: Timeout duration in seconds
+            max_frames: Maximum frames to capture
+
+        Returns:
+            Complete Ultra Acquisition configuration
+
+        Note: Ultra Acquisition mode captures waveforms at maximum speed for anomaly detection.
+        """
+        # Set acquisition type to Ultra
+        scope.instrument.write(":ACQ:TYPE ULTRa")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set Ultra mode
+        scope.instrument.write(f":ACQ:ULTR:MODE {mode.value}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set timeout
+        scope.instrument.write(f":ACQ:ULTR:TIM {timeout}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set max frames
+        scope.instrument.write(f":ACQ:ULTR:FMAX {max_frames}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify settings
+        actual_mode_str = scope.instrument.query(":ACQ:ULTR:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_timeout = float(scope.instrument.query(":ACQ:ULTR:TIM?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_max_frames = int(scope.instrument.query(":ACQ:ULTR:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Map SCPI response to enum
+        actual_mode = UltraAcquisitionMode.EDGE if actual_mode_str == "EDGE" else UltraAcquisitionMode.PULSE
+
+        return UltraAcquisitionResult(
+            mode=actual_mode,
+            timeout=actual_timeout,
+            max_frames=actual_max_frames,
+            message=f"Ultra Acquisition configured: {actual_mode.value} mode, {actual_timeout}s timeout, {actual_max_frames} max frames"
+        )
+
     @mcp.tool
     @with_scope_connection
     async def get_sample_rate() -> SampleRateResult:
@@ -5307,6 +5811,140 @@ def create_server(temp_dir: str) -> FastMCP:
             current_reading=current_reading,
             unit="V",
         )
+
+    # === PRIORITY 1: HARDWARE COUNTER ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_hardware_counter(
+        enabled: Annotated[bool, Field(description="Boolean to enable counter")],
+        channel: ChannelNumber,
+        mode: Annotated[HardwareCounterMode, Field(description='Measurement mode ("FREQUENCY", "PERIOD", "TOTALIZE")')],
+        digits: CounterDigitsField,
+        totalize_enabled: Annotated[bool, Field(description="Enable statistics (only for FREQUENCY/PERIOD modes)")],
+    ) -> HardwareCounterConfigResult:
+        """
+        Configure hardware frequency counter in a single call.
+
+        Modes:
+        - **FREQUENCY**: Measures signal frequency (Hz)
+        - **PERIOD**: Measures signal period (seconds)
+        - **TOTALIZE**: Counts total rising/falling edges
+
+        Use cases:
+        - High-accuracy frequency measurement (6-digit precision)
+        - Period measurement for low-frequency signals
+        - Edge counting for event totalization
+
+        Args:
+            enabled: Boolean to enable counter
+            channel: Source channel (1-4)
+            mode: Measurement mode ("FREQUENCY", "PERIOD", "TOTALIZE")
+            digits: Resolution (5 or 6 digits)
+            totalize_enabled: Enable statistics (only for FREQUENCY/PERIOD modes)
+
+        Returns:
+            Dictionary with complete counter configuration and current reading
+
+        Note: Counter must be enabled first. Units depend on mode (Hz for frequency, seconds for period, count for totalize).
+        """
+        # Enable/disable counter
+        scope.instrument.write(f":COUN:ENAB {'ON' if enabled else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":COUN:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set mode
+        scope.instrument.write(f":COUN:MODE {mode.value}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set digit resolution
+        scope.instrument.write(f":COUN:NDIG {digits}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set totalize enable (statistics)
+        scope.instrument.write(f":COUN:TOT:ENAB {'ON' if totalize_enabled else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify settings
+        actual_enabled = bool(int(scope.instrument.query(":COUN:ENAB?")))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope.instrument.query(":COUN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_channel = _parse_channel_from_scpi(actual_source)
+        actual_mode_str = scope.instrument.query(":COUN:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_digits = int(scope.instrument.query(":COUN:NDIG?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_totalize = bool(int(scope.instrument.query(":COUN:TOT:ENAB?")))  # type: ignore[reportAttributeAccessIssue]
+
+        # Map SCPI response to enum
+        mode_map = {
+            "FREQ": HardwareCounterMode.FREQUENCY,
+            "PER": HardwareCounterMode.PERIOD,
+            "TOT": HardwareCounterMode.TOTALIZE,
+        }
+        actual_mode = mode_map.get(actual_mode_str[:3], HardwareCounterMode.FREQUENCY)
+
+        # Get current value if enabled
+        current_value: Optional[float] = None
+        unit = "Hz"  # Default unit
+        if actual_enabled:
+            try:
+                current_value = float(scope.instrument.query(":COUN:CURR?"))  # type: ignore[reportAttributeAccessIssue]
+                # Determine unit based on mode
+                if actual_mode == HardwareCounterMode.FREQUENCY:
+                    unit = "Hz"
+                elif actual_mode == HardwareCounterMode.PERIOD:
+                    unit = "s"
+                else:  # TOTALIZE
+                    unit = "count"
+            except:
+                current_value = None
+
+        return HardwareCounterConfigResult(
+            enabled=actual_enabled,
+            channel=actual_channel,
+            mode=actual_mode,
+            digits=actual_digits,
+            totalize_enabled=actual_totalize,
+            current_value=current_value,
+            unit=unit,
+            message=f"Hardware counter configured: {'enabled' if actual_enabled else 'disabled'}, CH{actual_channel}, {actual_mode.value} mode, {actual_digits} digits"
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def get_hardware_counter_value() -> HardwareCounterValueResult:
+        """
+        Get current hardware counter reading.
+
+        Returns:
+            Dictionary with value and unit
+
+        Note: Counter must be enabled first. Units depend on mode (Hz for frequency, seconds for period, count for totalize).
+        """
+        # Get current mode to determine unit
+        mode_str = scope.instrument.query(":COUN:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        mode_map = {
+            "FREQ": ("Hz", HardwareCounterMode.FREQUENCY),
+            "PER": ("s", HardwareCounterMode.PERIOD),
+            "TOT": ("count", HardwareCounterMode.TOTALIZE),
+        }
+        unit, _ = mode_map.get(mode_str[:3], ("Hz", HardwareCounterMode.FREQUENCY))
+
+        # Get current reading
+        value = float(scope.instrument.query(":COUN:CURR?"))  # type: ignore[reportAttributeAccessIssue]
+
+        return HardwareCounterValueResult(value=value, unit=unit)
+
+    @mcp.tool
+    @with_scope_connection
+    async def reset_counter_totalize() -> CounterTotalizeResetResult:
+        """
+        Clear/reset the totalize counter and statistics.
+
+        Returns:
+            Action confirmation
+
+        Note: Only applies when counter is in statistics mode (totalize enabled).
+        """
+        scope.instrument.write(":COUN:TOT:CLE")  # type: ignore[reportAttributeAccessIssue]
+
+        return CounterTotalizeResetResult(message="Counter totalize reset")
 
     return mcp
 
