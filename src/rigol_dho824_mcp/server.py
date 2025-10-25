@@ -1640,7 +1640,24 @@ def create_server(temp_dir: str) -> FastMCP:
                 if beeper_enabled:
                     scope.instrument.write(":SYSTem:BEEPer ON")  # type: ignore[reportAttributeAccessIssue]
                 try:
-                    return await func(*args, **kwargs)
+                    result = await func(*args, **kwargs)
+
+                    # Check for SCPI errors after user function completes
+                    errors = []
+                    for i in range(100):
+                        error_response = scope.instrument.query(":SYSTem:ERRor?").strip()  # type: ignore[reportAttributeAccessIssue]
+                        if error_response == '0,"No error"':
+                            break
+                        errors.append(error_response)
+                    else:
+                        # Hit 100 iterations without clearing error queue
+                        raise Exception(f"SCPI error queue did not clear after 100 iterations. Errors: {'; '.join(errors)}")
+
+                    # Raise if any errors were collected
+                    if errors:
+                        raise Exception(f"SCPI errors detected: {'; '.join(errors)}")
+
+                    return result
                 finally:
                     # Restore panel control and disable beeper before disconnect
                     if beeper_enabled:
