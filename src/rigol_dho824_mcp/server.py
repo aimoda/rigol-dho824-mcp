@@ -324,6 +324,190 @@ class SlopeWindow(str, Enum):
     TAB = "TAB"  # Measure from level A to level B
 
 
+# === PROTOCOL TRIGGER & BUS DECODE ENUMS ===
+
+
+class RS232When(str, Enum):
+    """RS232/UART trigger conditions."""
+
+    START = "STARt"  # Start of frame
+    ERROR = "ERRor"  # Error frame
+    PARITY_ERROR = "CERRor"  # Check/parity error
+    DATA = "DATA"  # Specific data byte
+
+
+class SerialParity(str, Enum):
+    """Serial parity modes for RS232/UART."""
+
+    NONE = "NONE"
+    EVEN = "EVEN"
+    ODD = "ODD"
+    MARK = "MARK"
+    SPACE = "SPACe"
+
+
+class StopBits(str, Enum):
+    """Stop bit options for RS232/UART."""
+
+    ONE = "1"
+    ONE_HALF = "1.5"
+    TWO = "2"
+
+
+class I2CWhen(str, Enum):
+    """I2C trigger conditions."""
+
+    START = "STARt"  # Start condition
+    RESTART = "RESTart"  # Restart condition
+    STOP = "STOP"  # Stop condition
+    NACK = "NACKnowledge"  # Missing acknowledgment
+    ADDRESS = "ADDRess"  # Address match
+    DATA = "DATA"  # Data match
+    ADDRESS_DATA = "ADATa"  # Address and data match
+
+
+class I2CDirection(str, Enum):
+    """I2C transfer direction."""
+
+    READ = "READ"
+    WRITE = "WRITe"
+    READ_WRITE = "RWRIte"  # Either direction
+
+
+class AddressWidth(str, Enum):
+    """I2C address width options."""
+
+    BITS_7 = "7"
+    BITS_10 = "10"
+
+
+class SPIMode(str, Enum):
+    """SPI clock modes (CPOL/CPHA combinations)."""
+
+    MODE_0 = "CPOL0CPHA0"  # CPOL=0, CPHA=0
+    MODE_1 = "CPOL0CPHA1"  # CPOL=0, CPHA=1
+    MODE_2 = "CPOL1CPHA0"  # CPOL=1, CPHA=0
+    MODE_3 = "CPOL1CPHA1"  # CPOL=1, CPHA=1
+
+
+class CANSignalType(str, Enum):
+    """CAN signal type options."""
+
+    RX = "RX"  # CAN RX line
+    TX = "TX"  # CAN TX line
+    DIFF = "DIFF"  # Differential
+
+
+class CANWhen(str, Enum):
+    """CAN trigger conditions."""
+
+    START = "STARt"  # Start of frame
+    FRAME = "FRAM"  # Frame type
+    IDENTIFIER = "IDENt"  # Identifier match
+    DATA = "DATA"  # Data match
+    ID_DATA = "IDDA"  # ID and data match
+    ERROR = "ERRor"  # Error frame
+    END = "END"  # End of frame
+    ACK = "ACK"  # Acknowledge
+
+
+class CANFrameType(str, Enum):
+    """CAN frame types."""
+
+    DATA = "DATA"
+    REMOTE = "REMote"
+
+
+class CANIDType(str, Enum):
+    """CAN identifier types."""
+
+    STANDARD = "STANdard"  # 11-bit
+    EXTENDED = "EXTended"  # 29-bit
+
+
+class LINStandard(str, Enum):
+    """LIN protocol versions."""
+
+    V1_0 = "1P0"
+    V2_0 = "2P0"
+    V2_1 = "2P1"
+    V2_2 = "2P2"
+
+
+class LINWhen(str, Enum):
+    """LIN trigger conditions."""
+
+    SYNC = "SYNC"  # Sync field
+    IDENTIFIER = "IDENtifier"  # Identifier
+    DATA = "DATA"  # Data
+    ID_DATA = "IDDA"  # ID and data
+    ERROR = "ERRor"  # Error
+    WAKEUP = "AWAK"  # Wakeup signal
+
+
+class LINErrorType(str, Enum):
+    """LIN error types."""
+
+    SYNC_ERROR = "SYNError"
+    PARITY_ERROR = "PARError"
+    CHECKSUM_ERROR = "CHKError"
+    TIMEOUT_ERROR = "TOUTerror"
+
+
+class BusMode(str, Enum):
+    """Bus decode modes."""
+
+    PARALLEL = "PARallel"
+    RS232 = "RS232"
+    I2C = "IIC"
+    SPI = "SPI"
+    CAN = "CAN"
+    LIN = "LIN"
+
+
+class BusFormat(str, Enum):
+    """Bus decode display formats."""
+
+    HEX = "HEX"
+    DEC = "DEC"
+    BIN = "BIN"
+    ASCII = "ASCii"
+
+
+class BitOrder(str, Enum):
+    """Bit order/endianness."""
+
+    LSB = "LSB"  # Least significant bit first
+    MSB = "MSB"  # Most significant bit first
+
+
+# === PROTOCOL-SPECIFIC TYPE ALIASES ===
+
+# Baud rate field
+BaudRateField = Annotated[int, Field(description="Baud rate in bits per second")]
+
+# Data byte/value fields
+DataByteField = Annotated[int, Field(ge=0, le=255, description="Data byte value (0-255)")]
+DataValueField = Annotated[int, Field(description="Data value to match")]
+
+# Address fields
+I2CAddressField = Annotated[int, Field(description="I2C address")]
+CANIdentifierField = Annotated[int, Field(description="CAN identifier")]
+LINIdentifierField = Annotated[int, Field(ge=0, le=63, description="LIN identifier (0-63)")]
+
+# SPI-specific fields
+SPIDataWidthField = Annotated[int, Field(description="Data width in bits (8, 16, 24, 32)")]
+
+# CAN-specific fields
+CANSamplePointField = Annotated[int, Field(ge=5, le=95, description="Sample point percentage (5-95%)")]
+
+# Data bits field
+DataBitsField = Annotated[int, Field(description="Number of data bits")]
+
+# Bus number field
+BusNumberField = Annotated[int, Field(ge=1, le=4, description="Bus number (1-4)", examples=[1, 2, 3, 4])]
+
+
 # === TYPE DEFINITIONS FOR RESULTS ===
 
 
@@ -807,6 +991,192 @@ class DelayTriggerResult(TypedDict):
     level_b: SourceBThresholdField
 
 
+# Protocol Trigger Results
+
+
+class RS232TriggerResult(TypedDict):
+    """Result for RS232/UART trigger configuration."""
+
+    trigger_mode: Annotated[Literal["RS232"], Field(description="Trigger mode (RS232)")]
+    channel: ChannelNumber
+    when: Annotated[str, Field(description="Trigger condition")]
+    data_value: Annotated[Optional[int], Field(description="Data byte to match (for DATA mode)")]
+    baud_rate: BaudRateField
+    parity: Annotated[str, Field(description="Parity setting")]
+    stop_bits: Annotated[str, Field(description="Stop bit count")]
+    data_bits: DataBitsField
+    polarity: Annotated[str, Field(description="Signal polarity")]
+    level: TriggerLevelField
+
+
+class I2CTriggerResult(TypedDict):
+    """Result for I2C trigger configuration."""
+
+    trigger_mode: Annotated[Literal["I2C"], Field(description="Trigger mode (I2C)")]
+    scl_channel: ChannelNumber
+    sda_channel: ChannelNumber
+    when: Annotated[str, Field(description="Trigger condition")]
+    address: Annotated[Optional[int], Field(description="I2C address (for ADDRESS/ADDRESS_DATA modes)")]
+    data_value: Annotated[Optional[int], Field(description="Data byte (for DATA/ADDRESS_DATA modes)")]
+    address_width: Annotated[str, Field(description="Address width (7 or 10 bits)")]
+    direction: Annotated[str, Field(description="Transfer direction")]
+    clock_level: ClockThresholdField
+    data_level: DataThresholdField
+
+
+class SPITriggerResult(TypedDict):
+    """Result for SPI trigger configuration."""
+
+    trigger_mode: Annotated[Literal["SPI"], Field(description="Trigger mode (SPI)")]
+    sclk_channel: ChannelNumber
+    miso_channel: Annotated[Optional[int], Field(description="MISO channel")]
+    cs_channel: Annotated[Optional[int], Field(description="Chip select channel")]
+    clock_slope: Annotated[str, Field(description="Clock edge")]
+    when: Annotated[str, Field(description="Trigger condition")]
+    timeout: Annotated[Optional[float], Field(description="Timeout duration")]
+    data_width: SPIDataWidthField
+    data_value: DataValueField
+    clock_level: ClockThresholdField
+    miso_level: Annotated[Optional[float], Field(description="MISO threshold voltage")]
+    cs_level: Annotated[Optional[float], Field(description="CS threshold voltage")]
+
+
+class CANTriggerResult(TypedDict):
+    """Result for CAN trigger configuration."""
+
+    trigger_mode: Annotated[Literal["CAN"], Field(description="Trigger mode (CAN)")]
+    channel: ChannelNumber
+    baud_rate: BaudRateField
+    signal_type: Annotated[str, Field(description="Signal type")]
+    when: Annotated[str, Field(description="Trigger condition")]
+    sample_point: CANSamplePointField
+    frame_type: Annotated[str, Field(description="Frame type")]
+    id_type: Annotated[str, Field(description="Identifier type")]
+    identifier: Annotated[Optional[int], Field(description="CAN identifier")]
+    data_bytes: Annotated[Optional[str], Field(description="Data pattern")]
+    level: TriggerLevelField
+
+
+class LINTriggerResult(TypedDict):
+    """Result for LIN trigger configuration."""
+
+    trigger_mode: Annotated[Literal["LIN"], Field(description="Trigger mode (LIN)")]
+    channel: ChannelNumber
+    standard: Annotated[str, Field(description="LIN version")]
+    baud_rate: BaudRateField
+    when: Annotated[str, Field(description="Trigger condition")]
+    error_type: Annotated[Optional[str], Field(description="Error type (for ERROR mode)")]
+    identifier: Annotated[Optional[int], Field(description="LIN identifier")]
+    data_bytes: Annotated[Optional[str], Field(description="Data pattern")]
+    level: TriggerLevelField
+
+
+# Bus Decode Results
+
+
+class ParallelBusResult(TypedDict):
+    """Result for parallel bus decode configuration."""
+
+    bus_number: BusNumberField
+    bus_mode: Annotated[Literal["PARALLEL"], Field(description="Bus mode (PARALLEL)")]
+    bit_assignments: Annotated[dict[int, int], Field(description="Bit position to channel mapping")]
+    clock_channel: Annotated[Optional[int], Field(description="Clock channel")]
+    width: Annotated[int, Field(description="Bus width in bits")]
+    clock_polarity: Annotated[str, Field(description="Clock edge")]
+    bit_order: Annotated[str, Field(description="Bit endianness")]
+
+
+class RS232BusResult(TypedDict):
+    """Result for RS232 bus decode configuration."""
+
+    bus_number: BusNumberField
+    bus_mode: Annotated[Literal["RS232"], Field(description="Bus mode (RS232)")]
+    tx_channel: Annotated[Optional[int], Field(description="TX channel")]
+    rx_channel: Annotated[Optional[int], Field(description="RX channel")]
+    polarity: Annotated[str, Field(description="Signal polarity")]
+    parity: Annotated[str, Field(description="Parity setting")]
+    bit_order: Annotated[str, Field(description="Bit endianness")]
+    baud_rate: BaudRateField
+    data_bits: DataBitsField
+    stop_bits: Annotated[str, Field(description="Stop bits")]
+
+
+class I2CBusResult(TypedDict):
+    """Result for I2C bus decode configuration."""
+
+    bus_number: BusNumberField
+    bus_mode: Annotated[Literal["I2C"], Field(description="Bus mode (I2C)")]
+    scl_channel: ChannelNumber
+    sda_channel: ChannelNumber
+    address_width: Annotated[str, Field(description="Address width")]
+
+
+class SPIBusResult(TypedDict):
+    """Result for SPI bus decode configuration."""
+
+    bus_number: BusNumberField
+    bus_mode: Annotated[Literal["SPI"], Field(description="Bus mode (SPI)")]
+    sclk_channel: ChannelNumber
+    miso_channel: Annotated[Optional[int], Field(description="MISO channel")]
+    mosi_channel: Annotated[Optional[int], Field(description="MOSI channel")]
+    ss_channel: Annotated[Optional[int], Field(description="Slave select channel")]
+    clock_polarity: Annotated[str, Field(description="Clock polarity")]
+    data_bits: DataBitsField
+    bit_order: Annotated[str, Field(description="Bit endianness")]
+    spi_mode: Annotated[str, Field(description="SPI mode")]
+    timeout: Annotated[float, Field(description="Frame timeout")]
+
+
+class CANBusResult(TypedDict):
+    """Result for CAN bus decode configuration."""
+
+    bus_number: BusNumberField
+    bus_mode: Annotated[Literal["CAN"], Field(description="Bus mode (CAN)")]
+    source_channel: ChannelNumber
+    signal_type: Annotated[str, Field(description="Signal type")]
+    baud_rate: BaudRateField
+    sample_point: CANSamplePointField
+
+
+class LINBusResult(TypedDict):
+    """Result for LIN bus decode configuration."""
+
+    bus_number: BusNumberField
+    bus_mode: Annotated[Literal["LIN"], Field(description="Bus mode (LIN)")]
+    source_channel: ChannelNumber
+    parity: Annotated[str, Field(description="Parity mode")]
+    standard: Annotated[str, Field(description="LIN version")]
+
+
+class BusDisplayResult(TypedDict):
+    """Result for bus display settings."""
+
+    bus_number: BusNumberField
+    enabled: Annotated[bool, Field(description="Whether bus decode display is enabled")]
+
+
+class BusFormatResult(TypedDict):
+    """Result for bus format settings."""
+
+    bus_number: BusNumberField
+    format: Annotated[str, Field(description="Display format")]
+
+
+class BusDataResult(TypedDict):
+    """Result for bus decoded data."""
+
+    bus_number: BusNumberField
+    decoded_data: Annotated[str, Field(description="Decoded bus data string")]
+
+
+class BusExportResult(TypedDict):
+    """Result for bus data export operation."""
+
+    bus_number: BusNumberField
+    file_path: Annotated[str, Field(description="Local file path where CSV was saved")]
+    bytes_downloaded: Annotated[int, Field(description="Number of bytes downloaded")]
+
+
 # === OSCILLOSCOPE CONNECTION CLASS ===
 
 
@@ -954,11 +1324,11 @@ class RigolDHO824:
                 return parts[1]
         return None
 
-    def download_wfm_via_ftp(
+    def download_file_via_ftp(
         self, ip_address: str, scope_filename: str, local_filepath: str
     ) -> bool:
         """
-        Download WFM file from oscilloscope via FTP.
+        Download file from oscilloscope via FTP.
 
         Args:
             ip_address: IP address of oscilloscope
@@ -1431,7 +1801,7 @@ def create_server(temp_dir: str) -> FastMCP:
                 await ctx.report_progress(
                     progress=1.0, message="Downloading WFM file via FTP..."
                 )
-                if scope.download_wfm_via_ftp(ip_address, wfm_filename, wfm_local_path):
+                if scope.download_file_via_ftp(ip_address, wfm_filename, wfm_local_path):
                     wfm_saved_path = wfm_local_path
                     await ctx.report_progress(
                         progress=1.0, message=f"WFM file saved: {wfm_local_path}"
@@ -3208,6 +3578,1456 @@ def create_server(temp_dir: str) -> FastMCP:
             lower_time=actual_lower,
             level_a=actual_level_a,
             level_b=actual_level_b,
+        )
+
+    # === PROTOCOL TRIGGERS ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_rs232_trigger(
+        channel: ChannelNumber,
+        when: Annotated[
+            Literal["START", "ERROR", "PARITY_ERROR", "DATA"],
+            Field(description="Trigger condition"),
+        ],
+        baud_rate: BaudRateField,
+        parity: Annotated[
+            Literal["NONE", "EVEN", "ODD", "MARK", "SPACE"],
+            Field(description="Parity setting"),
+        ],
+        stop_bits: Annotated[
+            Literal["1", "1.5", "2"],
+            Field(description="Stop bit count"),
+        ],
+        polarity: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Signal polarity"),
+        ],
+        level: TriggerLevelField,
+        data_value: Annotated[
+            Optional[int],
+            Field(ge=0, le=255, description="Data byte to match (0-255, required for DATA mode)"),
+        ] = None,
+        data_bits: Annotated[
+            Literal[5, 6, 7, 8],
+            Field(description="Number of data bits"),
+        ] = 8,
+    ) -> RS232TriggerResult:
+        """
+        Trigger on UART/RS232 serial data patterns.
+
+        Detects start frames, error frames, parity errors, or specific data bytes
+        on RS232/UART serial communication lines.
+
+        Args:
+            channel: Source channel (1-4)
+            when: Trigger condition - "START", "ERROR", "PARITY_ERROR", or "DATA"
+            baud_rate: Baud rate in bits per second
+            parity: Parity setting
+            stop_bits: Stop bit count (1, 1.5, or 2)
+            polarity: Signal polarity
+            level: Trigger level in volts
+            data_value: Data byte to match (required for DATA mode)
+            data_bits: Number of data bits (5-8), defaults to 8
+
+        Returns:
+            Complete RS232 trigger configuration
+
+        Use cases:
+        - Triggering on frame start for synchronization
+        - Detecting communication errors
+        - Capturing specific data patterns
+        """
+        # Validate DATA mode requires data_value
+        if when == "DATA" and data_value is None:
+            raise ValueError("data_value is required when when='DATA'")
+
+        # Set trigger mode to RS232
+        scope.instrument.write(":TRIG:MODE RS232")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:RS232:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map when condition to SCPI format
+        when_map = {
+            "START": "STAR",
+            "ERROR": "ERR",
+            "PARITY_ERROR": "CERR",
+            "DATA": "DATA",
+        }
+        scope.instrument.write(f":TRIG:RS232:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data value if DATA mode
+        if when == "DATA" and data_value is not None:
+            scope.instrument.write(f":TRIG:RS232:DATA {data_value}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set baud rate
+        scope.instrument.write(f":TRIG:RS232:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data width
+        scope.instrument.write(f":TRIG:RS232:WIDT {data_bits}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set stop bits
+        scope.instrument.write(f":TRIG:RS232:STOP {stop_bits}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map parity to SCPI format
+        parity_scpi = SerialParity[parity].value
+        scope.instrument.write(f":TRIG:RS232:PAR {parity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map polarity to SCPI format
+        polarity_map = {"POSITIVE": "POS", "NEGATIVE": "NEG"}
+        scope.instrument.write(f":TRIG:RS232:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set trigger level
+        scope.instrument.write(f":TRIG:RS232:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration by reading back
+        actual_source = scope.instrument.query(":TRIG:RS232:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_when = scope.instrument.query(":TRIG:RS232:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_baud = int(scope.instrument.query(":TRIG:RS232:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_width = int(scope.instrument.query(":TRIG:RS232:WIDT?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_stop = scope.instrument.query(":TRIG:RS232:STOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_parity = scope.instrument.query(":TRIG:RS232:PAR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_polarity = scope.instrument.query(":TRIG:RS232:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_level = float(scope.instrument.query(":TRIG:RS232:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Parse channel from source
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Read data value if DATA mode
+        actual_data: Optional[int] = None
+        if when == "DATA":
+            actual_data = int(scope.instrument.query(":TRIG:RS232:DATA?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Map responses back to user-friendly format
+        when_reverse = {"STAR": "START", "ERR": "ERROR", "CERR": "PARITY_ERROR", "DATA": "DATA"}
+        parity_reverse = {"NONE": "NONE", "EVEN": "EVEN", "ODD": "ODD", "MARK": "MARK", "SPAC": "SPACE"}
+        polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+
+        return RS232TriggerResult(
+            trigger_mode="RS232",
+            channel=actual_channel,
+            when=when_reverse.get(actual_when, when),
+            data_value=actual_data,
+            baud_rate=actual_baud,
+            parity=parity_reverse.get(actual_parity, parity),
+            stop_bits=actual_stop,
+            data_bits=actual_width,
+            polarity=polarity_reverse.get(actual_polarity, polarity),
+            level=actual_level,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_i2c_trigger(
+        scl_channel: ChannelNumber,
+        sda_channel: ChannelNumber,
+        when: Annotated[
+            Literal["START", "RESTART", "STOP", "NACK", "ADDRESS", "DATA", "ADDRESS_DATA"],
+            Field(description="Trigger condition"),
+        ],
+        clock_level: ClockThresholdField,
+        data_level: DataThresholdField,
+        address: Annotated[
+            Optional[int],
+            Field(description="I2C address (required for ADDRESS/ADDRESS_DATA modes)"),
+        ] = None,
+        data_value: Annotated[
+            Optional[int],
+            Field(ge=0, le=255, description="Data byte (required for DATA/ADDRESS_DATA modes)"),
+        ] = None,
+        address_width: Annotated[
+            Literal["7", "10"],
+            Field(description="Address width (7 or 10 bits)"),
+        ] = "7",
+        direction: Annotated[
+            Literal["READ", "WRITE", "READ_WRITE"],
+            Field(description="Transfer direction"),
+        ] = "READ_WRITE",
+    ) -> I2CTriggerResult:
+        """
+        Trigger on I2C bus events (start, stop, address, data).
+
+        Detects I2C protocol events including start conditions, stop conditions,
+        address matches, data patterns, and acknowledgment errors.
+
+        Args:
+            scl_channel: SCL (clock) channel (1-4)
+            sda_channel: SDA (data) channel (1-4)
+            when: Trigger condition
+            clock_level: SCL threshold voltage
+            data_level: SDA threshold voltage
+            address: I2C address (required for ADDRESS/ADDRESS_DATA modes)
+            data_value: Data byte (required for DATA/ADDRESS_DATA modes)
+            address_width: 7-bit or 10-bit addressing
+            direction: Transfer direction
+
+        Returns:
+            Complete I2C trigger configuration
+
+        Use cases:
+        - Triggering on specific device addresses
+        - Detecting protocol errors (NACK)
+        - Capturing specific data patterns
+        """
+        # Validate modes that require address or data
+        if when in ["ADDRESS", "ADDRESS_DATA"] and address is None:
+            raise ValueError(f"address is required when when='{when}'")
+        if when in ["DATA", "ADDRESS_DATA"] and data_value is None:
+            raise ValueError(f"data_value is required when when='{when}'")
+
+        # Set trigger mode to I2C
+        scope.instrument.write(":TRIG:MODE IIC")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set SCL and SDA channels
+        scope.instrument.write(f":TRIG:IIC:SCL CHAN{scl_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:IIC:SDA CHAN{sda_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map when condition to SCPI format
+        when_map = {
+            "START": "STAR",
+            "RESTART": "REST",
+            "STOP": "STOP",
+            "NACK": "NACK",
+            "ADDRESS": "ADDR",
+            "DATA": "DATA",
+            "ADDRESS_DATA": "ADAT",
+        }
+        scope.instrument.write(f":TRIG:IIC:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set address width
+        scope.instrument.write(f":TRIG:IIC:AWID {address_width}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set address if needed
+        if when in ["ADDRESS", "ADDRESS_DATA"] and address is not None:
+            scope.instrument.write(f":TRIG:IIC:ADDR {address}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data if needed
+        if when in ["DATA", "ADDRESS_DATA"] and data_value is not None:
+            scope.instrument.write(f":TRIG:IIC:DATA {data_value}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map direction to SCPI format
+        direction_scpi = I2CDirection[direction].value
+        scope.instrument.write(f":TRIG:IIC:DIR {direction_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set voltage levels
+        scope.instrument.write(f":TRIG:IIC:CLEV {clock_level}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":TRIG:IIC:DLEV {data_level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_scl = scope.instrument.query(":TRIG:IIC:SCL?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_sda = scope.instrument.query(":TRIG:IIC:SDA?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_when = scope.instrument.query(":TRIG:IIC:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_width = scope.instrument.query(":TRIG:IIC:AWID?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_direction = scope.instrument.query(":TRIG:IIC:DIR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_clevel = float(scope.instrument.query(":TRIG:IIC:CLEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_dlevel = float(scope.instrument.query(":TRIG:IIC:DLEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        actual_scl_channel = _parse_channel_from_scpi(actual_scl)
+        actual_sda_channel = _parse_channel_from_scpi(actual_sda)
+
+        # Read address and data if applicable
+        actual_address: Optional[int] = None
+        actual_data: Optional[int] = None
+        if when in ["ADDRESS", "ADDRESS_DATA"]:
+            actual_address = int(scope.instrument.query(":TRIG:IIC:ADDR?"))  # type: ignore[reportAttributeAccessIssue]
+        if when in ["DATA", "ADDRESS_DATA"]:
+            actual_data = int(scope.instrument.query(":TRIG:IIC:DATA?"))  # type: ignore[reportAttributeAccessIssue]
+
+        # Map responses back
+        when_reverse = {
+            "STAR": "START",
+            "REST": "RESTART",
+            "STOP": "STOP",
+            "NACK": "NACK",
+            "ADDR": "ADDRESS",
+            "DATA": "DATA",
+            "ADAT": "ADDRESS_DATA",
+        }
+        direction_reverse = {"READ": "READ", "WRIT": "WRITE", "RWRI": "READ_WRITE"}
+
+        return I2CTriggerResult(
+            trigger_mode="I2C",
+            scl_channel=actual_scl_channel,
+            sda_channel=actual_sda_channel,
+            when=when_reverse.get(actual_when, when),
+            address=actual_address,
+            data_value=actual_data,
+            address_width=actual_width,
+            direction=direction_reverse.get(actual_direction, direction),
+            clock_level=actual_clevel,
+            data_level=actual_dlevel,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_spi_trigger(
+        sclk_channel: ChannelNumber,
+        clock_slope: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Clock edge"),
+        ],
+        when: Annotated[
+            Literal["TIMEOUT"],
+            Field(description="Trigger condition"),
+        ],
+        timeout: Annotated[float, Field(description="Timeout duration in seconds")],
+        data_width: Annotated[
+            Literal[8, 16, 24, 32],
+            Field(description="Data width in bits"),
+        ],
+        data_value: DataValueField,
+        clock_level: ClockThresholdField,
+        miso_channel: Annotated[
+            Optional[int],
+            Field(ge=1, le=4, description="MISO channel (1-4, optional)"),
+        ] = None,
+        cs_channel: Annotated[
+            Optional[int],
+            Field(ge=1, le=4, description="Chip select channel (1-4, optional)"),
+        ] = None,
+        miso_level: Annotated[
+            Optional[float],
+            Field(description="MISO threshold voltage (required if miso_channel set)"),
+        ] = None,
+        cs_level: Annotated[
+            Optional[float],
+            Field(description="CS threshold voltage (required if cs_channel set)"),
+        ] = None,
+    ) -> SPITriggerResult:
+        """
+        Trigger on SPI bus data patterns.
+
+        Detects SPI timeout conditions when no clock edges occur for the
+        specified duration.
+
+        Args:
+            sclk_channel: Clock channel (1-4)
+            clock_slope: Clock edge - "POSITIVE" or "NEGATIVE"
+            when: Trigger condition (currently only "TIMEOUT" supported)
+            timeout: Timeout duration in seconds
+            data_width: Data width in bits (8, 16, 24, 32)
+            data_value: Data pattern to match
+            clock_level: SCLK threshold voltage
+            miso_channel: MISO channel (optional)
+            cs_channel: Chip select channel (optional)
+            miso_level: MISO threshold voltage
+            cs_level: CS threshold voltage
+
+        Returns:
+            Complete SPI trigger configuration
+
+        Use cases:
+        - Detecting bus idle/timeout conditions
+        - Capturing specific data patterns
+        """
+        # Validate MISO/CS levels if channels are specified
+        if miso_channel is not None and miso_level is None:
+            raise ValueError("miso_level is required when miso_channel is set")
+        if cs_channel is not None and cs_level is None:
+            raise ValueError("cs_level is required when cs_channel is set")
+
+        # Set trigger mode to SPI
+        scope.instrument.write(":TRIG:MODE SPI")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set SCLK channel
+        scope.instrument.write(f":TRIG:SPI:CLK CHAN{sclk_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set MISO channel if provided
+        if miso_channel is not None:
+            scope.instrument.write(f":TRIG:SPI:MISO CHAN{miso_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set CS channel if provided
+        if cs_channel is not None:
+            scope.instrument.write(f":TRIG:SPI:CS CHAN{cs_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set clock slope
+        slope_map = {"POSITIVE": "POS", "NEGATIVE": "NEG"}
+        scope.instrument.write(f":TRIG:SPI:SLOP {slope_map[clock_slope]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set when condition
+        scope.instrument.write(":TRIG:SPI:WHEN TOUT")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set timeout
+        scope.instrument.write(f":TRIG:SPI:TIM {timeout}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data width
+        scope.instrument.write(f":TRIG:SPI:WIDT {data_width}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data value
+        scope.instrument.write(f":TRIG:SPI:DATA {data_value}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set voltage levels
+        scope.instrument.write(f":TRIG:SPI:CLEV {clock_level}")  # type: ignore[reportAttributeAccessIssue]
+        if miso_level is not None:
+            scope.instrument.write(f":TRIG:SPI:DLEV {miso_level}")  # type: ignore[reportAttributeAccessIssue]
+        if cs_level is not None:
+            scope.instrument.write(f":TRIG:SPI:SLEV {cs_level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_sclk = scope.instrument.query(":TRIG:SPI:CLK?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_slope = scope.instrument.query(":TRIG:SPI:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_when = scope.instrument.query(":TRIG:SPI:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_timeout = float(scope.instrument.query(":TRIG:SPI:TIM?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_width = int(scope.instrument.query(":TRIG:SPI:WIDT?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_data = int(scope.instrument.query(":TRIG:SPI:DATA?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_clevel = float(scope.instrument.query(":TRIG:SPI:CLEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        actual_sclk_channel = _parse_channel_from_scpi(actual_sclk)
+
+        # Read optional channels
+        actual_miso: Optional[int] = None
+        actual_cs: Optional[int] = None
+        actual_miso_level: Optional[float] = None
+        actual_cs_level: Optional[float] = None
+
+        if miso_channel is not None:
+            miso_source = scope.instrument.query(":TRIG:SPI:MISO?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_miso = _parse_channel_from_scpi(miso_source)
+            actual_miso_level = float(scope.instrument.query(":TRIG:SPI:DLEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        if cs_channel is not None:
+            cs_source = scope.instrument.query(":TRIG:SPI:CS?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_cs = _parse_channel_from_scpi(cs_source)
+            actual_cs_level = float(scope.instrument.query(":TRIG:SPI:SLEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+
+        return SPITriggerResult(
+            trigger_mode="SPI",
+            sclk_channel=actual_sclk_channel,
+            miso_channel=actual_miso,
+            cs_channel=actual_cs,
+            clock_slope=slope_reverse.get(actual_slope, clock_slope),
+            when="TIMEOUT",
+            timeout=actual_timeout,
+            data_width=actual_width,
+            data_value=actual_data,
+            clock_level=actual_clevel,
+            miso_level=actual_miso_level,
+            cs_level=actual_cs_level,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_can_trigger(
+        channel: ChannelNumber,
+        baud_rate: BaudRateField,
+        signal_type: Annotated[
+            Literal["RX", "TX", "DIFF"],
+            Field(description="Signal type"),
+        ],
+        when: Annotated[
+            Literal["START", "FRAME", "IDENTIFIER", "DATA", "ID_DATA", "ERROR", "END", "ACK"],
+            Field(description="Trigger condition"),
+        ],
+        level: TriggerLevelField,
+        sample_point: Annotated[
+            int,
+            Field(ge=5, le=95, description="Sample point percentage (5-95%)"),
+        ] = 50,
+        frame_type: Annotated[
+            Literal["DATA", "REMOTE"],
+            Field(description="Frame type"),
+        ] = "DATA",
+        id_type: Annotated[
+            Literal["STANDARD", "EXTENDED"],
+            Field(description="Identifier type"),
+        ] = "STANDARD",
+        identifier: Annotated[
+            Optional[int],
+            Field(description="CAN identifier (required for IDENTIFIER/ID_DATA modes)"),
+        ] = None,
+        data_bytes: Annotated[
+            Optional[str],
+            Field(description="Data pattern (hex string, required for DATA/ID_DATA modes)"),
+        ] = None,
+    ) -> CANTriggerResult:
+        """
+        Trigger on CAN bus frames and errors.
+
+        Detects CAN protocol events including start of frame, specific identifiers,
+        data patterns, errors, and acknowledgments.
+
+        Args:
+            channel: Source channel (1-4)
+            baud_rate: CAN baud rate
+            signal_type: Signal type - RX, TX, or differential
+            when: Trigger condition
+            level: Trigger level voltage
+            sample_point: Sample point percentage (5-95%)
+            frame_type: DATA or REMOTE frame
+            id_type: STANDARD (11-bit) or EXTENDED (29-bit)
+            identifier: CAN identifier (required for IDENTIFIER/ID_DATA modes)
+            data_bytes: Data pattern (required for DATA/ID_DATA modes)
+
+        Returns:
+            Complete CAN trigger configuration
+
+        Use cases:
+        - Triggering on specific CAN IDs
+        - Detecting CAN errors
+        - Capturing specific data frames
+        """
+        # Validate modes that require identifier or data
+        if when in ["IDENTIFIER", "ID_DATA"] and identifier is None:
+            raise ValueError(f"identifier is required when when='{when}'")
+        if when in ["DATA", "ID_DATA"] and data_bytes is None:
+            raise ValueError(f"data_bytes is required when when='{when}'")
+
+        # Set trigger mode to CAN
+        scope.instrument.write(":TRIG:MODE CAN")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:CAN:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set baud rate
+        scope.instrument.write(f":TRIG:CAN:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map signal type to SCPI format
+        signal_scpi = CANSignalType[signal_type].value
+        scope.instrument.write(f":TRIG:CAN:STYPE {signal_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map when condition to SCPI format
+        when_map = {
+            "START": "STAR",
+            "FRAME": "FRAM",
+            "IDENTIFIER": "IDEN",
+            "DATA": "DATA",
+            "ID_DATA": "IDDA",
+            "ERROR": "ERR",
+            "END": "END",
+            "ACK": "ACK",
+        }
+        scope.instrument.write(f":TRIG:CAN:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set sample point
+        scope.instrument.write(f":TRIG:CAN:SAMP {sample_point}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set frame type
+        frame_scpi = CANFrameType[frame_type].value
+        scope.instrument.write(f":TRIG:CAN:FTYP {frame_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set ID type
+        id_scpi = CANIDType[id_type].value
+        scope.instrument.write(f":TRIG:CAN:ITYP {id_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set identifier if needed
+        if when in ["IDENTIFIER", "ID_DATA"] and identifier is not None:
+            scope.instrument.write(f":TRIG:CAN:ID {identifier}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data if needed
+        if when in ["DATA", "ID_DATA"] and data_bytes is not None:
+            scope.instrument.write(f":TRIG:CAN:DATA {data_bytes}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set trigger level
+        scope.instrument.write(f":TRIG:CAN:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(":TRIG:CAN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_baud = int(scope.instrument.query(":TRIG:CAN:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_signal = scope.instrument.query(":TRIG:CAN:STYPE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_when = scope.instrument.query(":TRIG:CAN:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_sample = int(scope.instrument.query(":TRIG:CAN:SAMP?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_frame = scope.instrument.query(":TRIG:CAN:FTYP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_id_type = scope.instrument.query(":TRIG:CAN:ITYP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_level = float(scope.instrument.query(":TRIG:CAN:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Read identifier and data if applicable
+        actual_id: Optional[int] = None
+        actual_data: Optional[str] = None
+        if when in ["IDENTIFIER", "ID_DATA"]:
+            actual_id = int(scope.instrument.query(":TRIG:CAN:ID?"))  # type: ignore[reportAttributeAccessIssue]
+        if when in ["DATA", "ID_DATA"]:
+            actual_data = scope.instrument.query(":TRIG:CAN:DATA?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        # Map responses back
+        when_reverse = {
+            "STAR": "START",
+            "FRAM": "FRAME",
+            "IDEN": "IDENTIFIER",
+            "DATA": "DATA",
+            "IDDA": "ID_DATA",
+            "ERR": "ERROR",
+            "END": "END",
+            "ACK": "ACK",
+        }
+        signal_reverse = {"RX": "RX", "TX": "TX", "DIFF": "DIFF"}
+        frame_reverse = {"DATA": "DATA", "REM": "REMOTE"}
+        id_type_reverse = {"STAN": "STANDARD", "EXT": "EXTENDED"}
+
+        return CANTriggerResult(
+            trigger_mode="CAN",
+            channel=actual_channel,
+            baud_rate=actual_baud,
+            signal_type=signal_reverse.get(actual_signal, signal_type),
+            when=when_reverse.get(actual_when, when),
+            sample_point=actual_sample,
+            frame_type=frame_reverse.get(actual_frame, frame_type),
+            id_type=id_type_reverse.get(actual_id_type, id_type),
+            identifier=actual_id,
+            data_bytes=actual_data,
+            level=actual_level,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_lin_trigger(
+        channel: ChannelNumber,
+        standard: Annotated[
+            Literal["V1_0", "V2_0", "V2_1", "V2_2"],
+            Field(description="LIN version"),
+        ],
+        baud_rate: BaudRateField,
+        when: Annotated[
+            Literal["SYNC", "IDENTIFIER", "DATA", "ID_DATA", "ERROR", "WAKEUP"],
+            Field(description="Trigger condition"),
+        ],
+        level: TriggerLevelField,
+        error_type: Annotated[
+            Optional[Literal["SYNC_ERROR", "PARITY_ERROR", "CHECKSUM_ERROR", "TIMEOUT_ERROR"]],
+            Field(description="Error type (required for ERROR mode)"),
+        ] = None,
+        identifier: Annotated[
+            Optional[int],
+            Field(ge=0, le=63, description="LIN identifier (0-63, required for IDENTIFIER/ID_DATA modes)"),
+        ] = None,
+        data_bytes: Annotated[
+            Optional[str],
+            Field(description="Data pattern (hex string, required for DATA/ID_DATA modes)"),
+        ] = None,
+    ) -> LINTriggerResult:
+        """
+        Trigger on LIN bus frames and errors.
+
+        Detects LIN protocol events including sync fields, identifiers,
+        data patterns, errors, and wakeup signals.
+
+        Args:
+            channel: Source channel (1-4)
+            standard: LIN version
+            baud_rate: LIN baud rate
+            when: Trigger condition
+            level: Trigger level voltage
+            error_type: Error type (required for ERROR mode)
+            identifier: LIN identifier (required for IDENTIFIER/ID_DATA modes)
+            data_bytes: Data pattern (required for DATA/ID_DATA modes)
+
+        Returns:
+            Complete LIN trigger configuration
+
+        Use cases:
+        - Triggering on specific LIN IDs
+        - Detecting LIN protocol errors
+        - Capturing wakeup signals
+        """
+        # Validate modes that require specific parameters
+        if when == "ERROR" and error_type is None:
+            raise ValueError("error_type is required when when='ERROR'")
+        if when in ["IDENTIFIER", "ID_DATA"] and identifier is None:
+            raise ValueError(f"identifier is required when when='{when}'")
+        if when in ["DATA", "ID_DATA"] and data_bytes is None:
+            raise ValueError(f"data_bytes is required when when='{when}'")
+
+        # Set trigger mode to LIN
+        scope.instrument.write(":TRIG:MODE LIN")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":TRIG:LIN:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map standard to SCPI format
+        standard_scpi = LINStandard[standard].value
+        scope.instrument.write(f":TRIG:LIN:STAN {standard_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set baud rate
+        scope.instrument.write(f":TRIG:LIN:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Map when condition to SCPI format
+        when_map = {
+            "SYNC": "SYNC",
+            "IDENTIFIER": "IDEN",
+            "DATA": "DATA",
+            "ID_DATA": "IDDA",
+            "ERROR": "ERR",
+            "WAKEUP": "AWAK",
+        }
+        scope.instrument.write(f":TRIG:LIN:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set error type if ERROR mode
+        if when == "ERROR" and error_type is not None:
+            error_scpi = LINErrorType[error_type].value
+            scope.instrument.write(f":TRIG:LIN:ETYP {error_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set identifier if needed
+        if when in ["IDENTIFIER", "ID_DATA"] and identifier is not None:
+            scope.instrument.write(f":TRIG:LIN:ID {identifier}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data if needed
+        if when in ["DATA", "ID_DATA"] and data_bytes is not None:
+            scope.instrument.write(f":TRIG:LIN:DATA {data_bytes}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set trigger level
+        scope.instrument.write(f":TRIG:LIN:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(":TRIG:LIN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_standard = scope.instrument.query(":TRIG:LIN:STAN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_baud = int(scope.instrument.query(":TRIG:LIN:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_when = scope.instrument.query(":TRIG:LIN:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_level = float(scope.instrument.query(":TRIG:LIN:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+
+        actual_channel = _parse_channel_from_scpi(actual_source)
+
+        # Read optional fields
+        actual_error: Optional[str] = None
+        actual_id: Optional[int] = None
+        actual_data: Optional[str] = None
+
+        if when == "ERROR":
+            err_type = scope.instrument.query(":TRIG:LIN:ETYP?").strip()  # type: ignore[reportAttributeAccessIssue]
+            error_reverse = {
+                "SYNE": "SYNC_ERROR",
+                "PARE": "PARITY_ERROR",
+                "CHKE": "CHECKSUM_ERROR",
+                "TOUT": "TIMEOUT_ERROR",
+            }
+            actual_error = error_reverse.get(err_type)
+
+        if when in ["IDENTIFIER", "ID_DATA"]:
+            actual_id = int(scope.instrument.query(":TRIG:LIN:ID?"))  # type: ignore[reportAttributeAccessIssue]
+
+        if when in ["DATA", "ID_DATA"]:
+            actual_data = scope.instrument.query(":TRIG:LIN:DATA?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        # Map responses back
+        when_reverse = {
+            "SYNC": "SYNC",
+            "IDEN": "IDENTIFIER",
+            "DATA": "DATA",
+            "IDDA": "ID_DATA",
+            "ERR": "ERROR",
+            "AWAK": "WAKEUP",
+        }
+        standard_reverse = {"1P0": "V1_0", "2P0": "V2_0", "2P1": "V2_1", "2P2": "V2_2"}
+
+        return LINTriggerResult(
+            trigger_mode="LIN",
+            channel=actual_channel,
+            standard=standard_reverse.get(actual_standard, standard),
+            baud_rate=actual_baud,
+            when=when_reverse.get(actual_when, when),
+            error_type=actual_error,
+            identifier=actual_id,
+            data_bytes=actual_data,
+            level=actual_level,
+        )
+
+    # === BUS DECODE CONFIGURATION ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_parallel_bus(
+        bus_number: BusNumberField,
+        bit_assignments: Annotated[
+            dict[int, int],
+            Field(description="Dictionary mapping bit positions (0-7) to channels (1-4)"),
+        ],
+        width: Annotated[
+            int,
+            Field(ge=1, le=8, description="Bus width in bits (1-8)"),
+        ],
+        clock_channel: Annotated[
+            Optional[int],
+            Field(ge=1, le=4, description="Clock channel (1-4, optional)"),
+        ] = None,
+        clock_polarity: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Clock edge"),
+        ] = "POSITIVE",
+        bit_order: Annotated[
+            Literal["LSB", "MSB"],
+            Field(description="Bit endianness"),
+        ] = "LSB",
+    ) -> ParallelBusResult:
+        """
+        Configure parallel bus decode (up to 8 bits).
+
+        Sets up parallel bus decoding with configurable bit assignments,
+        optional clock, and bit ordering.
+
+        Args:
+            bus_number: Bus number (1-4)
+            bit_assignments: Bit position to channel mapping, e.g., {0: 1, 1: 2, 2: 3}
+            width: Bus width in bits (1-8)
+            clock_channel: Clock channel (optional)
+            clock_polarity: Clock edge - "POSITIVE" or "NEGATIVE"
+            bit_order: Bit endianness - "LSB" or "MSB"
+
+        Returns:
+            Complete parallel bus configuration
+
+        Use cases:
+        - Decoding parallel data buses
+        - Analyzing microprocessor buses
+        """
+        # Set bus mode to PARALLEL
+        scope.instrument.write(f":BUS{bus_number}:MODE PAR")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set bus width
+        scope.instrument.write(f":BUS{bus_number}:PAR:WIDT {width}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set bit assignments
+        for bit_pos, chan in bit_assignments.items():
+            if bit_pos < 0 or bit_pos >= width:
+                raise ValueError(f"Bit position {bit_pos} out of range for width {width}")
+            scope.instrument.write(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR CHAN{chan}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set clock channel if provided
+        if clock_channel is not None:
+            scope.instrument.write(f":BUS{bus_number}:PAR:CLK CHAN{clock_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set clock polarity
+        polarity_scpi = "POS" if clock_polarity == "POSITIVE" else "NEG"
+        scope.instrument.write(f":BUS{bus_number}:PAR:SLOP {polarity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set bit order
+        bit_order_scpi = BitOrder[bit_order].value
+        scope.instrument.write(f":BUS{bus_number}:PAR:END {bit_order_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_width = int(scope.instrument.query(f":BUS{bus_number}:PAR:WIDT?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_polarity = scope.instrument.query(f":BUS{bus_number}:PAR:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_bit_order = scope.instrument.query(f":BUS{bus_number}:PAR:END?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        # Read back bit assignments
+        verified_assignments = {}
+        for bit_pos in range(actual_width):
+            bit_source = scope.instrument.query(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+            verified_assignments[bit_pos] = _parse_channel_from_scpi(bit_source)
+
+        # Read clock channel if configured
+        actual_clock: Optional[int] = None
+        if clock_channel is not None:
+            clock_source = scope.instrument.query(f":BUS{bus_number}:PAR:CLK?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_clock = _parse_channel_from_scpi(clock_source)
+
+        polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+        bit_order_reverse = {"LSB": "LSB", "MSB": "MSB"}
+
+        return ParallelBusResult(
+            bus_number=bus_number,
+            bus_mode="PARALLEL",
+            bit_assignments=verified_assignments,
+            clock_channel=actual_clock,
+            width=actual_width,
+            clock_polarity=polarity_reverse.get(actual_polarity, clock_polarity),
+            bit_order=bit_order_reverse.get(actual_bit_order, bit_order),
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_rs232_bus(
+        bus_number: BusNumberField,
+        baud_rate: BaudRateField,
+        parity: Annotated[
+            Literal["NONE", "EVEN", "ODD", "MARK", "SPACE"],
+            Field(description="Parity setting"),
+        ],
+        stop_bits: Annotated[
+            Literal["1", "1.5", "2"],
+            Field(description="Stop bits"),
+        ],
+        polarity: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Signal polarity"),
+        ],
+        bit_order: Annotated[
+            Literal["LSB", "MSB"],
+            Field(description="Bit endianness"),
+        ],
+        tx_channel: Annotated[
+            Optional[int],
+            Field(ge=1, le=4, description="TX channel (optional)"),
+        ] = None,
+        rx_channel: Annotated[
+            Optional[int],
+            Field(ge=1, le=4, description="RX channel (optional)"),
+        ] = None,
+        data_bits: Annotated[
+            Literal[5, 6, 7, 8, 9],
+            Field(description="Number of data bits"),
+        ] = 8,
+    ) -> RS232BusResult:
+        """
+        Configure UART/RS232 bus decode.
+
+        Sets up RS232/UART bus decoding with configurable TX/RX channels,
+        baud rate, parity, and data format.
+
+        Args:
+            bus_number: Bus number (1-4)
+            baud_rate: Baud rate in bits per second
+            parity: Parity setting
+            stop_bits: Stop bits (1, 1.5, 2)
+            polarity: Signal polarity
+            bit_order: Bit endianness
+            tx_channel: TX channel (optional)
+            rx_channel: RX channel (optional)
+            data_bits: Number of data bits (5-9)
+
+        Returns:
+            Complete RS232 bus decode configuration
+
+        Use cases:
+        - Decoding UART communication
+        - Analyzing serial protocols
+        """
+        # Set bus mode to RS232
+        scope.instrument.write(f":BUS{bus_number}:MODE RS232")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set TX channel if provided
+        if tx_channel is not None:
+            scope.instrument.write(f":BUS{bus_number}:RS232:TX CHAN{tx_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set RX channel if provided
+        if rx_channel is not None:
+            scope.instrument.write(f":BUS{bus_number}:RS232:RX CHAN{rx_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set polarity
+        polarity_scpi = "POS" if polarity == "POSITIVE" else "NEG"
+        scope.instrument.write(f":BUS{bus_number}:RS232:POL {polarity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set parity
+        parity_scpi = SerialParity[parity].value
+        scope.instrument.write(f":BUS{bus_number}:RS232:PAR {parity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set bit order
+        bit_order_scpi = BitOrder[bit_order].value
+        scope.instrument.write(f":BUS{bus_number}:RS232:END {bit_order_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set baud rate
+        scope.instrument.write(f":BUS{bus_number}:RS232:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data bits
+        scope.instrument.write(f":BUS{bus_number}:RS232:DBIT {data_bits}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set stop bits
+        scope.instrument.write(f":BUS{bus_number}:RS232:SBIT {stop_bits}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_polarity = scope.instrument.query(f":BUS{bus_number}:RS232:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_parity = scope.instrument.query(f":BUS{bus_number}:RS232:PAR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_bit_order = scope.instrument.query(f":BUS{bus_number}:RS232:END?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_baud = int(scope.instrument.query(f":BUS{bus_number}:RS232:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_data_bits = int(scope.instrument.query(f":BUS{bus_number}:RS232:DBIT?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_stop_bits = scope.instrument.query(f":BUS{bus_number}:RS232:SBIT?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        # Read TX/RX channels if configured
+        actual_tx: Optional[int] = None
+        actual_rx: Optional[int] = None
+        if tx_channel is not None:
+            tx_source = scope.instrument.query(f":BUS{bus_number}:RS232:TX?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_tx = _parse_channel_from_scpi(tx_source)
+        if rx_channel is not None:
+            rx_source = scope.instrument.query(f":BUS{bus_number}:RS232:RX?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_rx = _parse_channel_from_scpi(rx_source)
+
+        polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+        parity_reverse = {"NONE": "NONE", "EVEN": "EVEN", "ODD": "ODD", "MARK": "MARK", "SPAC": "SPACE"}
+        bit_order_reverse = {"LSB": "LSB", "MSB": "MSB"}
+
+        return RS232BusResult(
+            bus_number=bus_number,
+            bus_mode="RS232",
+            tx_channel=actual_tx,
+            rx_channel=actual_rx,
+            polarity=polarity_reverse.get(actual_polarity, polarity),
+            parity=parity_reverse.get(actual_parity, parity),
+            bit_order=bit_order_reverse.get(actual_bit_order, bit_order),
+            baud_rate=actual_baud,
+            data_bits=actual_data_bits,
+            stop_bits=actual_stop_bits,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_i2c_bus(
+        bus_number: BusNumberField,
+        scl_channel: ChannelNumber,
+        sda_channel: ChannelNumber,
+        address_width: Annotated[
+            Literal["7", "10"],
+            Field(description="Address width (7 or 10 bits)"),
+        ] = "7",
+    ) -> I2CBusResult:
+        """
+        Configure I2C bus decode.
+
+        Sets up I2C bus decoding with SCL/SDA channels and address width.
+
+        Args:
+            bus_number: Bus number (1-4)
+            scl_channel: SCL channel
+            sda_channel: SDA channel
+            address_width: Address width (7 or 10 bits)
+
+        Returns:
+            Complete I2C bus decode configuration
+
+        Use cases:
+        - Decoding I2C communication
+        - Analyzing I2C devices
+        """
+        # Set bus mode to I2C
+        scope.instrument.write(f":BUS{bus_number}:MODE IIC")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set SCL and SDA channels
+        scope.instrument.write(f":BUS{bus_number}:IIC:SCLK:SOUR CHAN{scl_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope.instrument.write(f":BUS{bus_number}:IIC:SDA:SOUR CHAN{sda_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set address width
+        scope.instrument.write(f":BUS{bus_number}:IIC:ADDR {address_width}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_scl = scope.instrument.query(f":BUS{bus_number}:IIC:SCLK:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_sda = scope.instrument.query(f":BUS{bus_number}:IIC:SDA:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_width = scope.instrument.query(f":BUS{bus_number}:IIC:ADDR?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        actual_scl_channel = _parse_channel_from_scpi(actual_scl)
+        actual_sda_channel = _parse_channel_from_scpi(actual_sda)
+
+        return I2CBusResult(
+            bus_number=bus_number,
+            bus_mode="I2C",
+            scl_channel=actual_scl_channel,
+            sda_channel=actual_sda_channel,
+            address_width=actual_width,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_spi_bus(
+        bus_number: BusNumberField,
+        sclk_channel: ChannelNumber,
+        clock_polarity: Annotated[
+            Literal["POSITIVE", "NEGATIVE"],
+            Field(description="Clock polarity"),
+        ],
+        data_bits: Annotated[
+            Literal[4, 8, 16, 24, 32],
+            Field(description="Data width in bits"),
+        ],
+        bit_order: Annotated[
+            Literal["LSB", "MSB"],
+            Field(description="Bit endianness"),
+        ],
+        spi_mode: Annotated[
+            Literal["MODE_0", "MODE_1", "MODE_2", "MODE_3"],
+            Field(description="SPI mode (CPOL/CPHA combination)"),
+        ],
+        timeout: Annotated[float, Field(description="Frame timeout in seconds")],
+        miso_channel: Annotated[
+            Optional[int],
+            Field(ge=1, le=4, description="MISO channel (optional)"),
+        ] = None,
+        mosi_channel: Annotated[
+            Optional[int],
+            Field(ge=1, le=4, description="MOSI channel (optional)"),
+        ] = None,
+        ss_channel: Annotated[
+            Optional[int],
+            Field(ge=1, le=4, description="Slave select channel (optional)"),
+        ] = None,
+    ) -> SPIBusResult:
+        """
+        Configure SPI bus decode.
+
+        Sets up SPI bus decoding with clock, data lines, and protocol parameters.
+
+        Args:
+            bus_number: Bus number (1-4)
+            sclk_channel: Clock channel
+            clock_polarity: Clock polarity
+            data_bits: Data width (4, 8, 16, 24, 32)
+            bit_order: Bit endianness
+            spi_mode: SPI mode
+            timeout: Frame timeout in seconds
+            miso_channel: MISO channel (optional)
+            mosi_channel: MOSI channel (optional)
+            ss_channel: Slave select channel (optional)
+
+        Returns:
+            Complete SPI bus decode configuration
+
+        Use cases:
+        - Decoding SPI communication
+        - Analyzing SPI devices
+        """
+        # Set bus mode to SPI
+        scope.instrument.write(f":BUS{bus_number}:MODE SPI")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set SCLK channel
+        scope.instrument.write(f":BUS{bus_number}:SPI:SCLK:SOUR CHAN{sclk_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set optional channels
+        if miso_channel is not None:
+            scope.instrument.write(f":BUS{bus_number}:SPI:MISO:SOUR CHAN{miso_channel}")  # type: ignore[reportAttributeAccessIssue]
+        if mosi_channel is not None:
+            scope.instrument.write(f":BUS{bus_number}:SPI:MOSI:SOUR CHAN{mosi_channel}")  # type: ignore[reportAttributeAccessIssue]
+        if ss_channel is not None:
+            scope.instrument.write(f":BUS{bus_number}:SPI:SS:SOUR CHAN{ss_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set clock slope/polarity
+        polarity_scpi = "POS" if clock_polarity == "POSITIVE" else "NEG"
+        scope.instrument.write(f":BUS{bus_number}:SPI:SCLK:SLOP {polarity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set data bits
+        scope.instrument.write(f":BUS{bus_number}:SPI:DBIT {data_bits}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set bit order
+        bit_order_scpi = BitOrder[bit_order].value
+        scope.instrument.write(f":BUS{bus_number}:SPI:END {bit_order_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set SPI mode
+        spi_mode_scpi = SPIMode[spi_mode].value
+        scope.instrument.write(f":BUS{bus_number}:SPI:MODE {spi_mode_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set timeout
+        scope.instrument.write(f":BUS{bus_number}:SPI:TIM:TIME {timeout}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_sclk = scope.instrument.query(f":BUS{bus_number}:SPI:SCLK:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_polarity = scope.instrument.query(f":BUS{bus_number}:SPI:SCLK:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_data_bits = int(scope.instrument.query(f":BUS{bus_number}:SPI:DBIT?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_bit_order = scope.instrument.query(f":BUS{bus_number}:SPI:END?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_spi_mode = scope.instrument.query(f":BUS{bus_number}:SPI:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_timeout = float(scope.instrument.query(f":BUS{bus_number}:SPI:TIM:TIME?"))  # type: ignore[reportAttributeAccessIssue]
+
+        actual_sclk_channel = _parse_channel_from_scpi(actual_sclk)
+
+        # Read optional channels
+        actual_miso: Optional[int] = None
+        actual_mosi: Optional[int] = None
+        actual_ss: Optional[int] = None
+        if miso_channel is not None:
+            miso_source = scope.instrument.query(f":BUS{bus_number}:SPI:MISO:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_miso = _parse_channel_from_scpi(miso_source)
+        if mosi_channel is not None:
+            mosi_source = scope.instrument.query(f":BUS{bus_number}:SPI:MOSI:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_mosi = _parse_channel_from_scpi(mosi_source)
+        if ss_channel is not None:
+            ss_source = scope.instrument.query(f":BUS{bus_number}:SPI:SS:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_ss = _parse_channel_from_scpi(ss_source)
+
+        polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
+        bit_order_reverse = {"LSB": "LSB", "MSB": "MSB"}
+        # Map SCPI mode back to user-friendly enum
+        mode_reverse = {
+            "CPOL0CPHA0": "MODE_0",
+            "CPOL0CPHA1": "MODE_1",
+            "CPOL1CPHA0": "MODE_2",
+            "CPOL1CPHA1": "MODE_3",
+        }
+
+        return SPIBusResult(
+            bus_number=bus_number,
+            bus_mode="SPI",
+            sclk_channel=actual_sclk_channel,
+            miso_channel=actual_miso,
+            mosi_channel=actual_mosi,
+            ss_channel=actual_ss,
+            clock_polarity=polarity_reverse.get(actual_polarity, clock_polarity),
+            data_bits=actual_data_bits,
+            bit_order=bit_order_reverse.get(actual_bit_order, bit_order),
+            spi_mode=mode_reverse.get(actual_spi_mode, spi_mode),
+            timeout=actual_timeout,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_can_bus(
+        bus_number: BusNumberField,
+        source_channel: ChannelNumber,
+        signal_type: Annotated[
+            Literal["RX", "TX", "DIFF"],
+            Field(description="Signal type"),
+        ],
+        baud_rate: BaudRateField,
+        sample_point: Annotated[
+            int,
+            Field(ge=5, le=95, description="Sample point percentage (5-95%)"),
+        ] = 50,
+    ) -> CANBusResult:
+        """
+        Configure CAN bus decode.
+
+        Sets up CAN bus decoding with signal source, baud rate, and sample point.
+
+        Args:
+            bus_number: Bus number (1-4)
+            source_channel: Source channel
+            signal_type: Signal type (RX, TX, DIFF)
+            baud_rate: CAN baud rate
+            sample_point: Sample point percentage (5-95%)
+
+        Returns:
+            Complete CAN bus decode configuration
+
+        Use cases:
+        - Decoding CAN communication
+        - Analyzing automotive networks
+        """
+        # Set bus mode to CAN
+        scope.instrument.write(f":BUS{bus_number}:MODE CAN")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":BUS{bus_number}:CAN:SOUR CHAN{source_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set signal type
+        signal_scpi = CANSignalType[signal_type].value
+        scope.instrument.write(f":BUS{bus_number}:CAN:STYPE {signal_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set baud rate
+        scope.instrument.write(f":BUS{bus_number}:CAN:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set sample point
+        scope.instrument.write(f":BUS{bus_number}:CAN:SAMP {sample_point}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(f":BUS{bus_number}:CAN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_signal = scope.instrument.query(f":BUS{bus_number}:CAN:STYPE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_baud = int(scope.instrument.query(f":BUS{bus_number}:CAN:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_sample = int(scope.instrument.query(f":BUS{bus_number}:CAN:SAMP?"))  # type: ignore[reportAttributeAccessIssue]
+
+        actual_source_channel = _parse_channel_from_scpi(actual_source)
+
+        signal_reverse = {"RX": "RX", "TX": "TX", "DIFF": "DIFF"}
+
+        return CANBusResult(
+            bus_number=bus_number,
+            bus_mode="CAN",
+            source_channel=actual_source_channel,
+            signal_type=signal_reverse.get(actual_signal, signal_type),
+            baud_rate=actual_baud,
+            sample_point=actual_sample,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def configure_lin_bus(
+        bus_number: BusNumberField,
+        source_channel: ChannelNumber,
+        parity: Annotated[
+            Literal["ENHANCED", "CLASSIC"],
+            Field(description="Parity mode"),
+        ],
+        standard: Annotated[
+            Literal["V1_0", "V2_0", "V2_1", "V2_2"],
+            Field(description="LIN version"),
+        ],
+    ) -> LINBusResult:
+        """
+        Configure LIN bus decode.
+
+        Sets up LIN bus decoding with source channel, parity mode, and LIN version.
+
+        Args:
+            bus_number: Bus number (1-4)
+            source_channel: Source channel
+            parity: Parity mode (enhanced or classic)
+            standard: LIN version
+
+        Returns:
+            Complete LIN bus decode configuration
+
+        Use cases:
+        - Decoding LIN communication
+        - Analyzing automotive LIN networks
+        """
+        # Set bus mode to LIN
+        scope.instrument.write(f":BUS{bus_number}:MODE LIN")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set source channel
+        scope.instrument.write(f":BUS{bus_number}:LIN:SOUR CHAN{source_channel}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set parity
+        parity_scpi = "ENH" if parity == "ENHANCED" else "CLAS"
+        scope.instrument.write(f":BUS{bus_number}:LIN:PAR {parity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set standard
+        standard_scpi = LINStandard[standard].value
+        scope.instrument.write(f":BUS{bus_number}:LIN:STAN {standard_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify configuration
+        actual_source = scope.instrument.query(f":BUS{bus_number}:LIN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_parity = scope.instrument.query(f":BUS{bus_number}:LIN:PAR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_standard = scope.instrument.query(f":BUS{bus_number}:LIN:STAN?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        actual_source_channel = _parse_channel_from_scpi(actual_source)
+
+        parity_reverse = {"ENH": "ENHANCED", "CLAS": "CLASSIC"}
+        standard_reverse = {"1P0": "V1_0", "2P0": "V2_0", "2P1": "V2_1", "2P2": "V2_2"}
+
+        return LINBusResult(
+            bus_number=bus_number,
+            bus_mode="LIN",
+            source_channel=actual_source_channel,
+            parity=parity_reverse.get(actual_parity, parity),
+            standard=standard_reverse.get(actual_standard, standard),
+        )
+
+    # === BUS UTILITY TOOLS ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_bus_display(
+        bus_number: BusNumberField,
+        enabled: Annotated[bool, Field(description="Enable/disable bus decode display")],
+    ) -> BusDisplayResult:
+        """
+        Enable or disable bus decode display on screen.
+
+        Controls whether the decoded bus data is displayed on the oscilloscope screen.
+
+        Args:
+            bus_number: Bus number (1-4)
+            enabled: Boolean to show/hide decode
+
+        Returns:
+            Bus display status
+        """
+        # Set bus display
+        display_cmd = "ON" if enabled else "OFF"
+        scope.instrument.write(f":BUS{bus_number}:DISP {display_cmd}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify
+        actual_display = scope.instrument.query(f":BUS{bus_number}:DISP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_enabled = actual_display == "1" or actual_display.upper() == "ON"
+
+        return BusDisplayResult(
+            bus_number=bus_number,
+            enabled=actual_enabled,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def set_bus_format(
+        bus_number: BusNumberField,
+        format: Annotated[
+            Literal["HEX", "DEC", "BIN", "ASCII"],
+            Field(description="Display format"),
+        ],
+    ) -> BusFormatResult:
+        """
+        Set bus decode display format.
+
+        Controls how decoded bus data is formatted on the screen (hexadecimal,
+        decimal, binary, or ASCII).
+
+        Args:
+            bus_number: Bus number (1-4)
+            format: Display format ("HEX", "DEC", "BIN", "ASCII")
+
+        Returns:
+            Current bus format
+        """
+        # Set bus format
+        format_scpi = BusFormat[format].value
+        scope.instrument.write(f":BUS{bus_number}:FORM {format_scpi}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Verify
+        actual_format = scope.instrument.query(f":BUS{bus_number}:FORM?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        format_reverse = {"HEX": "HEX", "DEC": "DEC", "BIN": "BIN", "ASC": "ASCII"}
+
+        return BusFormatResult(
+            bus_number=bus_number,
+            format=format_reverse.get(actual_format, format),
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def get_bus_decoded_data(
+        bus_number: BusNumberField,
+    ) -> BusDataResult:
+        """
+        Retrieve decoded bus data from screen.
+
+        Returns the currently decoded bus data as displayed on the oscilloscope.
+
+        Args:
+            bus_number: Bus number (1-4)
+
+        Returns:
+            Decoded bus data string
+        """
+        # Query decoded bus data
+        decoded_data = scope.instrument.query(f":BUS{bus_number}:DATA?").strip()  # type: ignore[reportAttributeAccessIssue]
+
+        return BusDataResult(
+            bus_number=bus_number,
+            decoded_data=decoded_data,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def export_bus_data(
+        ctx: Context,
+        bus_number: BusNumberField,
+        local_filepath: Annotated[str, Field(description="Local path to save CSV file")],
+    ) -> BusExportResult:
+        """
+        Export decoded bus data to CSV file.
+
+        Exports the decoded data from the protocol analyzer to a CSV file containing
+        timestamps, decoded values, and protocol-specific fields.
+
+        Args:
+            bus_number: Bus number (1-4)
+            local_filepath: Local path to save CSV file
+
+        Returns:
+            Dictionary with file path and number of bytes downloaded
+
+        Note:
+        - CSV contains timestamp, decoded values, and protocol-specific fields
+        """
+        # Generate random 8-char lowercase hex filename to avoid overwriting
+        csv_filename = f"{os.urandom(4).hex()}.csv"
+        csv_scope_path = f"C:/{csv_filename}"
+
+        await ctx.report_progress(
+            progress=0.3, message=f"Exporting bus {bus_number} data on scope..."
+        )
+
+        # Export bus data to CSV on scope
+        scope.instrument.write(f":BUS{bus_number}:EEXP '{csv_scope_path}'")  # type: ignore[reportAttributeAccessIssue]
+
+        # Wait for export to complete
+        await asyncio.sleep(0.5)
+
+        await ctx.report_progress(progress=0.6, message="Downloading CSV file...")
+
+        # Download via FTP
+        scope_ip = scope.extract_ip_from_resource()
+        if not scope_ip:
+            raise Exception("Could not extract IP address - network connection required")
+
+        if not scope.download_file_via_ftp(scope_ip, csv_filename, local_filepath):
+            raise Exception("Failed to download CSV file via FTP")
+
+        bytes_downloaded = os.path.getsize(local_filepath)
+
+        await ctx.report_progress(
+            progress=1.0, message=f"Export complete: {local_filepath}"
+        )
+
+        return BusExportResult(
+            bus_number=bus_number,
+            file_path=local_filepath,
+            bytes_downloaded=bytes_downloaded,
         )
 
     # === MEMORY & ACQUISITION SETTINGS ===
