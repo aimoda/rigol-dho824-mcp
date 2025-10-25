@@ -680,8 +680,10 @@ def create_server(temp_dir: str) -> FastMCP:
         This decorator:
         1. Acquires the asyncio lock to ensure single-threaded access to the scope
         2. Connects to the oscilloscope (raises exception if connection fails)
-        3. Executes the tool function
-        4. Disconnects and releases the lock in the finally block
+        3. Locks the front panel and enables beeper for remote operation
+        4. Executes the tool function
+        5. Restores panel control and disables beeper
+        6. Disconnects and releases the lock in the finally block
         """
 
         @functools.wraps(func)
@@ -691,9 +693,15 @@ def create_server(temp_dir: str) -> FastMCP:
                     raise Exception(
                         "Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
                     )
+                # Lock panel and enable beeper during remote operation
+                scope.instrument.write(":SYSTem:LOCKed ON")
+                scope.instrument.write(":SYSTem:BEEPer ON")
                 try:
                     return await func(*args, **kwargs)
                 finally:
+                    # Restore panel control and disable beeper before disconnect
+                    scope.instrument.write(":SYSTem:BEEPer OFF")
+                    scope.instrument.write(":SYSTem:LOCKed OFF")
                     scope.disconnect()
 
         return wrapper
