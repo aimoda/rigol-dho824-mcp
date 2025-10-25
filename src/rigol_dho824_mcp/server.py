@@ -1593,6 +1593,7 @@ def create_server(temp_dir: str) -> FastMCP:
     # Get configuration from environment
     resource_string = os.getenv("RIGOL_RESOURCE", "")
     timeout = int(os.getenv("VISA_TIMEOUT", "5000"))
+    beeper_enabled = os.getenv("RIGOL_BEEPER_ENABLED", "false").lower() in ("true", "1", "yes")
 
     # Create MCP server
     mcp = FastMCP("rigol-dho824", stateless_http=True)
@@ -1609,9 +1610,9 @@ def create_server(temp_dir: str) -> FastMCP:
         This decorator:
         1. Acquires the asyncio lock to ensure single-threaded access to the scope
         2. Connects to the oscilloscope (raises exception if connection fails)
-        3. Locks the front panel and enables beeper for remote operation
+        3. Locks the front panel and optionally enables beeper for remote operation (if RIGOL_BEEPER_ENABLED=true)
         4. Executes the tool function
-        5. Restores panel control and disables beeper
+        5. Restores panel control and optionally disables beeper
         6. Disconnects and releases the lock in the finally block
         """
 
@@ -1622,14 +1623,16 @@ def create_server(temp_dir: str) -> FastMCP:
                     raise Exception(
                         "Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
                     )
-                # Lock panel and enable beeper during remote operation
+                # Lock panel and optionally enable beeper during remote operation
                 scope.instrument.write(":SYSTem:LOCKed ON")  # type: ignore[reportAttributeAccessIssue]
-                scope.instrument.write(":SYSTem:BEEPer ON")  # type: ignore[reportAttributeAccessIssue]
+                if beeper_enabled:
+                    scope.instrument.write(":SYSTem:BEEPer ON")  # type: ignore[reportAttributeAccessIssue]
                 try:
                     return await func(*args, **kwargs)
                 finally:
                     # Restore panel control and disable beeper before disconnect
-                    scope.instrument.write(":SYSTem:BEEPer OFF")  # type: ignore[reportAttributeAccessIssue]
+                    if beeper_enabled:
+                        scope.instrument.write(":SYSTem:BEEPer OFF")  # type: ignore[reportAttributeAccessIssue]
                     scope.instrument.write(":SYSTem:LOCKed OFF")  # type: ignore[reportAttributeAccessIssue]
                     scope.disconnect()
 
