@@ -752,13 +752,6 @@ class ChannelLabelVisibilityResult(TypedDict):
     visible: Annotated[bool, Field(description="Label is visible")]
 
 
-class ChannelVernierResult(TypedDict):
-    """Result for channel vernier mode settings."""
-
-    channel: ChannelNumber
-    vernier: Annotated[bool, Field(description="True for fine adjustment, False for coarse")]
-
-
 class ChannelUnitsResult(TypedDict):
     """Result for channel units settings."""
 
@@ -791,12 +784,6 @@ class DelayedTimebaseOffsetResult(TypedDict):
 
     time_offset: DelayedTimeOffsetField
     units: TimeUnitsField
-
-
-class TimebaseVernierResult(TypedDict):
-    """Result for timebase vernier settings."""
-
-    vernier: Annotated[bool, Field(description="True for fine adjustment, False for coarse")]
 
 
 # Hardware counter results
@@ -2253,31 +2240,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
     @mcp.tool
     @with_scope_connection
-    async def set_channel_vernier(
-        channel: ChannelNumber,
-        fine_mode: Annotated[bool, Field(description="True for fine adjustment, False for coarse (1-2-5 sequence)")]
-    ) -> ChannelVernierResult:
-        """
-        Enable fine (vernier) or coarse vertical scale adjustment.
-
-        When vernier is ON, vertical scale can be set to any value. When OFF, scale follows 1-2-5 sequence.
-
-        Args:
-            channel: Channel number (1-4)
-            fine_mode: Boolean - True for fine adjustment, False for coarse (1-2-5 sequence)
-
-        Returns:
-            Vernier mode status
-        """
-        scope.instrument.write(f":CHAN{channel}:VERN {'ON' if fine_mode else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
-
-        # Verify the setting
-        actual_vernier = bool(int(scope.instrument.query(f":CHAN{channel}:VERN?")))  # type: ignore[reportAttributeAccessIssue]
-
-        return ChannelVernierResult(channel=channel, vernier=actual_vernier)
-
-    @mcp.tool
-    @with_scope_connection
     async def set_channel_units(
         channel: ChannelNumber,
         units: Annotated[ChannelUnits, Field(description='Unit type ("VOLT", "WATT", "AMPERE", "UNKNOWN")')]
@@ -2325,9 +2287,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Returns:
             Vertical scale setting
         """
-        # Let the oscilloscope handle validation based on vernier mode
-        # When vernier is OFF: snaps to 1-2-5 sequence
-        # When vernier is ON: accepts any value within range
         scope.instrument.write(f":CHAN{channel}:SCAL {vertical_scale}")  # type: ignore[reportAttributeAccessIssue]
 
         # Verify the setting
@@ -2529,27 +2488,6 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_offset = float(scope.instrument.query(":TIM:DEL:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
 
         return DelayedTimebaseOffsetResult(time_offset=actual_offset, units="s")
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_timebase_vernier(
-        fine_mode: Annotated[bool, Field(description="True for fine adjustment, False for coarse (1-2-5 sequence)")]
-    ) -> TimebaseVernierResult:
-        """
-        Enable fine (vernier) or coarse timebase adjustment.
-
-        Args:
-            fine_mode: Boolean - True for fine adjustment, False for coarse (1-2-5 sequence)
-
-        Returns:
-            Timebase vernier status
-        """
-        scope.instrument.write(f":TIM:VERN {'ON' if fine_mode else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
-
-        # Verify the setting
-        actual_vernier = bool(int(scope.instrument.query(":TIM:VERN?")))  # type: ignore[reportAttributeAccessIssue]
-
-        return TimebaseVernierResult(vernier=actual_vernier)
 
     # === ACQUISITION CONTROL TOOLS ===
 
