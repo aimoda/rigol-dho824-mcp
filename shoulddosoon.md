@@ -6,261 +6,11 @@ This document lists MCP tools to be added to the Rigol DHO824 MCP server, organi
 
 ---
 
-## Priority 1: Advanced Acquisition & Channel Settings
-
-### Acquisition Settings
-
-#### 1. `set_acquisition_averages`
-**SCPI:** `:ACQuire:AVERages <count>`
-
-Set number of averages when acquisition type is AVERAGE.
-
-**Parameters:**
-- `averages`: Number of averages (2-65536, power of 2 recommended)
-
-**Returns:** Current averages count
-
-**Note:** Only applies when `:ACQ:TYPE` is set to `AVERages`. Use with `set_acquisition_type("AVERAGE")`.
-
----
-
-#### 2. `configure_ultra_acquisition`
-**SCPI:** `:ACQuire:ULTRa:*`
-
-Configure Ultra Acquisition mode for high-speed waveform capture.
-
-**Complete SCPI sequence:**
-```
-:ACQuire:TYPE ULTRa
-:ACQuire:ULTRa:MODE {EDGE|PULSe}
-:ACQuire:ULTRa:TIMeout <time>
-:ACQuire:ULTRa:FMAX <count>
-```
-
-**Parameters:**
-- `mode`: Ultra mode ("EDGE" or "PULSE")
-- `timeout`: Timeout duration in seconds
-- `max_frames`: Maximum frames to capture
-
-**Returns:** Complete Ultra Acquisition configuration
-
-**Note:** Ultra Acquisition mode captures waveforms at maximum speed for anomaly detection.
-
----
-
-### Channel Settings
-
-#### 3. `set_channel_invert`
-**SCPI:** `:CHANnel<n>:INVert {ON|OFF}`
-
-Invert channel waveform display (multiply by -1).
-
-**Parameters:**
-- `channel`: Channel number (1-4)
-- `inverted`: Boolean to invert
-
-**Returns:** Channel invert status
-
----
-
-#### 4. `set_channel_label`
-**SCPI:** `:CHANnel<n>:LABel:CONTent <text>`
-
-Set custom channel label text.
-
-**Parameters:**
-- `channel`: Channel number (1-4)
-- `label`: Custom label string (max 4 characters)
-
-**Returns:** Current channel label
-
----
-
-#### 5. `set_channel_label_visible`
-**SCPI:** `:CHANnel<n>:LABel:SHOW {ON|OFF}`
-
-Show or hide custom channel label.
-
-**Parameters:**
-- `channel`: Channel number (1-4)
-- `visible`: Boolean to show/hide
-
-**Returns:** Label visibility status
-
----
-
-#### 6. `set_channel_vernier`
-**SCPI:** `:CHANnel<n>:VERNier {ON|OFF}`
-
-Enable fine (vernier) or coarse vertical scale adjustment.
-
-**Parameters:**
-- `channel`: Channel number (1-4)
-- `fine_mode`: Boolean - True for fine adjustment, False for coarse (1-2-5 sequence)
-
-**Returns:** Vernier mode status
-
-**Note:** When vernier is ON, vertical scale can be set to any value. When OFF, scale follows 1-2-5 sequence.
-
----
-
-#### 7. `set_channel_units`
-**SCPI:** `:CHANnel<n>:UNITs {VOLt|WATT|AMPere|UNKNown}`
-
-Set voltage display units for channel.
-
-**Parameters:**
-- `channel`: Channel number (1-4)
-- `units`: Unit type ("VOLT", "WATT", "AMPERE", "UNKNOWN")
-
-**Returns:** Current channel units
-
----
-
-### Timebase Settings
-
-#### 8. `set_timebase_mode`
-**SCPI:** `:TIMebase:MODE {MAIN|XY|ROLL}`
-
-Set timebase display mode.
-
-- **MAIN**: Normal YT mode
-- **XY**: Lissajous/XY mode (Ch1 = X axis, Ch2 = Y axis)
-- **ROLL**: Slow sweep roll mode (for low frequencies)
-
-**Parameters:**
-- `mode`: Timebase mode ("MAIN", "XY", "ROLL")
-
-**Returns:** Current timebase mode
-
----
-
-#### 9. `enable_delayed_timebase`
-**SCPI:** `:TIMebase:DELay:ENABle {ON|OFF}`
-
-Enable or disable delayed/zoom timebase (zoomed window).
-
-**Parameters:**
-- `enabled`: Boolean to enable zoom window
-
-**Returns:** Delayed timebase status
-
----
-
-#### 10. `set_delayed_timebase_scale`
-**SCPI:** `:TIMebase:DELay:SCALe <time>`
-
-Set zoom window horizontal scale (time/div).
-
-**Parameters:**
-- `time_per_div`: Zoom window time per division in seconds
-
-**Returns:** Delayed timebase scale
-
-**Note:** Must enable delayed timebase first with `enable_delayed_timebase(True)`.
-
----
-
-#### 11. `set_delayed_timebase_offset`
-**SCPI:** `:TIMebase:DELay:OFFSet <time>`
-
-Set zoom window horizontal position.
-
-**Parameters:**
-- `time_offset`: Zoom window offset in seconds
-
-**Returns:** Delayed timebase offset
-
-**Note:** Must enable delayed timebase first with `enable_delayed_timebase(True)`.
-
----
-
-#### 12. `set_timebase_vernier`
-**SCPI:** `:TIMebase:VERNier {ON|OFF}`
-
-Enable fine (vernier) or coarse timebase adjustment.
-
-**Parameters:**
-- `fine_mode`: Boolean - True for fine adjustment, False for coarse (1-2-5 sequence)
-
-**Returns:** Timebase vernier status
-
----
-
-## Priority 2: Hardware Counter (Frequency/Period/Totalize)
-
-The hardware counter provides high-precision frequency/period measurements independent of the main acquisition system.
-
-**Note:** There are two counter implementations in the DHO800:
-1. `:COUNter:*` - Dedicated hardware counter (Priority 5 - these tools)
-2. `:MEASure:COUNter:*` - Measurement subsystem counter (lower priority, skip for now)
-
-The dedicated hardware counter (`:COUNter:*`) provides superior accuracy and should be prioritized.
-
----
-
-#### 13. `configure_hardware_counter`
-**SCPI:** `:COUNter:*`
-
-Configure hardware frequency counter in a single call.
-
-**Complete SCPI sequence:**
-```
-:COUNter:ENABle {ON|OFF}
-:COUNter:SOURce <channel>
-:COUNter:MODE {FREQuency|PERiod|TOTalize}
-:COUNter:NDIGits {5|6}
-:COUNter:TOTalize:ENABle {ON|OFF}
-```
-
-**Parameters:**
-- `enabled`: Boolean to enable counter
-- `channel`: Source channel (1-4)
-- `mode`: Measurement mode ("FREQUENCY", "PERIOD", "TOTALIZE")
-- `digits`: Resolution (5 or 6 digits)
-- `totalize_enabled`: Enable statistics (only for FREQUENCY/PERIOD modes)
-
-**Returns:** Dictionary with complete counter configuration and current reading
-
-**Modes:**
-- **FREQUENCY**: Measures signal frequency (Hz)
-- **PERIOD**: Measures signal period (seconds)
-- **TOTALIZE**: Counts total rising/falling edges
-
-**Use cases:**
-- High-accuracy frequency measurement (6-digit precision)
-- Period measurement for low-frequency signals
-- Edge counting for event totalization
-
----
-
-#### 14. `get_hardware_counter_value`
-**SCPI:** `:COUNter:CURRent?`
-
-Get current hardware counter reading.
-
-**Returns:** Dictionary with value and unit
-
-**Note:** Counter must be enabled first. Units depend on mode (Hz for frequency, seconds for period, count for totalize).
-
----
-
-#### 15. `reset_counter_totalize`
-**SCPI:** `:COUNter:TOTalize:CLEar`
-
-Clear/reset the totalize counter and statistics.
-
-**Returns:** Action confirmation
-
-**Note:** Only applies when counter is in statistics mode (`:COUNter:TOTalize:ENABle ON`).
-
----
-
-## Priority 3: Waveform Recording (Segmented Memory)
+## Priority 1: Waveform Recording (Segmented Memory)
 
 Waveform recording captures multiple triggered waveforms into segmented memory for later analysis.
 
-#### 16. `start_waveform_recording`
+#### 1. `start_waveform_recording`
 **SCPI:** `:RECord:WRECord:*`
 
 Start recording waveforms to segmented memory.
@@ -283,7 +33,7 @@ Start recording waveforms to segmented memory.
 
 ---
 
-#### 17. `stop_waveform_recording`
+#### 2. `stop_waveform_recording`
 **SCPI:** `:RECord:WRECord:OPERate STOP`
 
 Stop waveform recording.
@@ -292,7 +42,7 @@ Stop waveform recording.
 
 ---
 
-#### 18. `get_recording_status`
+#### 3. `get_recording_status`
 **SCPI:** `:RECord:WRECord:*?`
 
 Query recording status and settings.
@@ -309,7 +59,7 @@ Query recording status and settings.
 
 ---
 
-#### 19. `replay_recorded_frames`
+#### 4. `replay_recorded_frames`
 **SCPI:** `:RECord:WREPlay:*`
 
 Configure and control recorded waveform playback.
@@ -343,7 +93,7 @@ Configure and control recorded waveform playback.
 
 ---
 
-#### 20. `export_recorded_frame`
+#### 5. `export_recorded_frame`
 **SCPI:** `:RECord:WREPlay:FCURrent + :WAV:DATA?`
 
 Export specific recorded frame as waveform data.
@@ -368,11 +118,11 @@ Export specific recorded frame as waveform data.
 
 ---
 
-## Priority 4: Reference Waveforms
+## Priority 2: Reference Waveforms
 
 Reference waveforms allow saving and comparing waveforms on-screen.
 
-#### 21. `save_reference_waveform`
+#### 6. `save_reference_waveform`
 **SCPI:** `:REFerence:SAVE <source>,<ref_slot>`
 
 Save current waveform as reference.
@@ -385,7 +135,7 @@ Save current waveform as reference.
 
 ---
 
-#### 22. `configure_reference_display`
+#### 7. `configure_reference_display`
 **SCPI:** `:REFerence:*`
 
 Configure reference waveform display.
@@ -408,9 +158,9 @@ Configure reference waveform display.
 
 ---
 
-## Priority 5: System Utilities
+## Priority 3: System Utilities
 
-#### 23. `reset_instrument`
+#### 8. `reset_instrument`
 **SCPI:** `*RST` or `:SYSTem:RESet`
 
 Perform factory reset of oscilloscope.
@@ -421,7 +171,7 @@ Perform factory reset of oscilloscope.
 
 ---
 
-#### 24. `get_system_error`
+#### 9. `get_system_error`
 **SCPI:** `:SYSTem:ERRor[:NEXT]?`
 
 Query and clear next error from error queue.
@@ -432,7 +182,7 @@ Query and clear next error from error queue.
 
 ---
 
-#### 25. `save_setup`
+#### 10. `save_setup`
 **SCPI:** `:SAVE:SETup <filepath>`
 
 Save current oscilloscope setup to internal storage, then download via FTP.
@@ -447,7 +197,7 @@ Save current oscilloscope setup to internal storage, then download via FTP.
 
 ---
 
-#### 26. `load_setup`
+#### 11. `load_setup`
 **SCPI:** `:LOAD:SETup <filepath>`
 
 Upload setup file via FTP, then load into oscilloscope.
@@ -461,7 +211,7 @@ Upload setup file via FTP, then load into oscilloscope.
 
 ---
 
-#### 27. `set_autoset_options`
+#### 12. `set_autoset_options`
 **SCPI:** `:AUToset:*`
 
 Configure autoset behavior.
@@ -480,9 +230,9 @@ Configure autoset behavior.
 
 ---
 
-## Priority 6: Display Settings
+## Priority 4: Display Settings
 
-#### 28. `configure_display`
+#### 13. `configure_display`
 **SCPI:** `:DISPlay:*`
 
 Configure display appearance.
@@ -503,9 +253,9 @@ Configure display appearance.
 
 ---
 
-## Priority 7: XY Mode (Lissajous)
+## Priority 5: XY Mode (Lissajous)
 
-#### 29. `configure_xy_mode`
+#### 14. `configure_xy_mode`
 **SCPI:** `:TIMebase:XY:*`
 
 Configure XY (Lissajous) display mode.
@@ -536,36 +286,25 @@ Configure XY (Lissajous) display mode.
 ## Summary by Category
 
 ### High Priority (Implement First)
-**Advanced Acquisition & Channel Settings (12 tools):** Items 1-12
-- Acquisition averages and ultra mode
-- Channel invert, labels, vernier, and units
-- Delayed timebase and vernier for fine-tuning
-- Fine control over display and acquisition
-
-**Hardware Counter (3 tools):** Items 13-15
-- High-precision measurements independent of main acquisition
-- Superior to software measurements
-- Frequency, period, and totalize modes
-
-### Medium Priority
-**Waveform Recording (5 tools):** Items 16-20
+**Waveform Recording (5 tools):** Items 1-5
 - Segmented memory capture and playback
 - Excellent for intermittent event analysis
 - Frame export and replay capabilities
 
-**Reference Waveforms (2 tools):** Items 21-22
+### Medium Priority
+**Reference Waveforms (2 tools):** Items 6-7
 - Save and display reference waveforms
 - Useful for comparison and quality control
 
-### Lower Priority
-**System Utilities (5 tools):** Items 23-27
+**System Utilities (5 tools):** Items 8-12
 - Reset, error handling, setup save/load
 - Autoset configuration
 
-**Display Settings (1 tool):** Item 28
+### Lower Priority
+**Display Settings (1 tool):** Item 13
 - Grid and brightness configuration
 
-**XY Mode (1 tool):** Item 29
+**XY Mode (1 tool):** Item 14
 - Lissajous/XY display for phase analysis
 
 ---
@@ -609,6 +348,6 @@ configure_hardware_counter(
 
 ---
 
-## Total: 29 Remaining Tools
+## Total: 14 Remaining Tools
 
-This represents the remaining unimplemented features after completing all protocol triggers and bus decode tools. These focus on acquisition control, measurement utilities, and system management.
+This represents the remaining unimplemented features after completing Priority 1 tools (advanced acquisition & channel settings, hardware counter), all protocol triggers, and bus decode tools. These focus on waveform recording, reference waveforms, system management, and display settings.
