@@ -75,6 +75,40 @@ HumanReadableSampleRateField = Annotated[
     str, Field(description="Human-readable sample rate")
 ]
 
+# === TRIGGER-RELATED FIELD TYPE ALIASES ===
+# Common field types used across trigger configurations to reduce duplication
+
+# Trigger level and voltage threshold fields
+TriggerLevelField = Annotated[float, Field(description="Trigger level in volts")]
+UpperVoltageLevelField = Annotated[float, Field(description="Upper voltage threshold")]
+LowerVoltageLevelField = Annotated[float, Field(description="Lower voltage threshold")]
+StartVoltageLevelField = Annotated[float, Field(description="Start voltage level")]
+EndVoltageLevelField = Annotated[float, Field(description="End voltage level")]
+SourceAThresholdField = Annotated[float, Field(description="Source A threshold voltage")]
+SourceBThresholdField = Annotated[float, Field(description="Source B threshold voltage")]
+DataThresholdField = Annotated[float, Field(description="Data threshold voltage")]
+ClockThresholdField = Annotated[float, Field(description="Clock threshold voltage")]
+
+# Time limit fields
+UpperTimeLimitField = Annotated[float, Field(description="Upper time limit in seconds")]
+LowerTimeLimitField = Annotated[float, Field(description="Lower time limit in seconds")]
+UpperWidthLimitField = Annotated[float, Field(description="Upper width limit in seconds")]
+LowerWidthLimitField = Annotated[float, Field(description="Lower width limit in seconds")]
+
+# Timing-related fields
+SetupTimeField = Annotated[float, Field(description="Minimum setup time in seconds")]
+HoldTimeField = Annotated[float, Field(description="Minimum hold time in seconds")]
+IdleTimeField = Annotated[float, Field(description="Minimum idle time in seconds")]
+TimeoutDurationField = Annotated[float, Field(description="Idle time in seconds")]
+
+# Edge and slope fields
+EdgeDirectionField = Annotated[str, Field(description="Edge direction")]
+EdgeCountField = Annotated[int, Field(description="Which edge number to trigger on")]
+
+# Condition fields
+TimeConditionField = Annotated[str, Field(description="Time condition (GREATER, LESS, or WITHIN)")]
+WidthConditionField = Annotated[str, Field(description="Width condition (GREATER, LESS, or WITHIN)")]
+
 
 class AcquisitionType(str, Enum):
     """Acquisition type modes."""
@@ -475,7 +509,7 @@ class TriggerSourceResult(TypedDict):
 class TriggerLevelResult(TypedDict):
     """Result for trigger level settings."""
 
-    trigger_level: Annotated[float, Field(description="Trigger level in volts")]
+    trigger_level: TriggerLevelField
     units: VoltageUnitsField
 
 
@@ -632,12 +666,12 @@ class PulseTriggerResult(TypedDict):
     trigger_mode: Annotated[Literal["PULSE"], Field(description="Trigger mode (PULSE)")]
     channel: ChannelNumber
     polarity: Annotated[str, Field(description="Pulse polarity (POSITIVE or NEGATIVE)")]
-    when: Annotated[str, Field(description="Width condition (GREATER, LESS, or WITHIN)")]
-    upper_width: Annotated[float, Field(description="Upper width limit in seconds")]
+    when: WidthConditionField
+    upper_width: UpperWidthLimitField
     lower_width: Annotated[
         Optional[float], Field(description="Lower width limit in seconds (for WITHIN)")
     ]
-    level: Annotated[float, Field(description="Trigger level in volts")]
+    level: TriggerLevelField
 
 
 class SlopeTriggerResult(TypedDict):
@@ -646,13 +680,13 @@ class SlopeTriggerResult(TypedDict):
     trigger_mode: Annotated[Literal["SLOPE"], Field(description="Trigger mode (SLOPE)")]
     channel: ChannelNumber
     polarity: Annotated[str, Field(description="Slope direction (POSITIVE or NEGATIVE)")]
-    when: Annotated[str, Field(description="Time condition (GREATER, LESS, or WITHIN)")]
-    upper_time: Annotated[float, Field(description="Upper time limit in seconds")]
+    when: TimeConditionField
+    upper_time: UpperTimeLimitField
     lower_time: Annotated[
         Optional[float], Field(description="Lower time limit in seconds (for WITHIN)")
     ]
-    level_a: Annotated[float, Field(description="Start voltage level")]
-    level_b: Annotated[float, Field(description="End voltage level")]
+    level_a: StartVoltageLevelField
+    level_b: EndVoltageLevelField
     window: Annotated[str, Field(description="Measurement window (TA, TB, or TAB)")]
 
 
@@ -667,7 +701,7 @@ class VideoTriggerResult(TypedDict):
         Optional[int], Field(description="Line number (for LINE mode)")
     ]
     standard: Annotated[str, Field(description="Video standard")]
-    level: Annotated[float, Field(description="Trigger level in volts")]
+    level: TriggerLevelField
 
 
 class PatternTriggerResult(TypedDict):
@@ -689,10 +723,10 @@ class RuntTriggerResult(TypedDict):
     channel: ChannelNumber
     polarity: Annotated[str, Field(description="Runt pulse direction")]
     when: Annotated[str, Field(description="Width qualification")]
-    upper_width: Annotated[float, Field(description="Upper width limit in seconds")]
-    lower_width: Annotated[float, Field(description="Lower width limit in seconds")]
-    level_a: Annotated[float, Field(description="Upper voltage threshold")]
-    level_b: Annotated[float, Field(description="Lower voltage threshold")]
+    upper_width: UpperWidthLimitField
+    lower_width: LowerWidthLimitField
+    level_a: UpperVoltageLevelField
+    level_b: LowerVoltageLevelField
 
 
 class TimeoutTriggerResult(TypedDict):
@@ -701,8 +735,8 @@ class TimeoutTriggerResult(TypedDict):
     trigger_mode: Annotated[Literal["TIMEOUT"], Field(description="Trigger mode (TIMEOUT)")]
     channel: ChannelNumber
     slope: Annotated[str, Field(description="Edge to start timeout counter")]
-    timeout: Annotated[float, Field(description="Idle time in seconds")]
-    level: Annotated[float, Field(description="Trigger level in volts")]
+    timeout: TimeoutDurationField
+    level: TriggerLevelField
 
 
 class DurationTriggerResult(TypedDict):
@@ -712,9 +746,9 @@ class DurationTriggerResult(TypedDict):
     channel: ChannelNumber
     pattern_type: Annotated[str, Field(description="Pattern qualifier")]
     when: Annotated[str, Field(description="Duration condition")]
-    upper_width: Annotated[float, Field(description="Upper time limit in seconds")]
-    lower_width: Annotated[float, Field(description="Lower time limit in seconds")]
-    level: Annotated[float, Field(description="Trigger level in volts")]
+    upper_width: UpperTimeLimitField
+    lower_width: LowerTimeLimitField
+    level: TriggerLevelField
 
 
 class SetupHoldTriggerResult(TypedDict):
@@ -725,10 +759,10 @@ class SetupHoldTriggerResult(TypedDict):
     clock_channel: ChannelNumber
     clock_slope: Annotated[str, Field(description="Clock edge direction")]
     data_pattern: Annotated[str, Field(description="Expected data value (H or L)")]
-    setup_time: Annotated[float, Field(description="Minimum setup time in seconds")]
-    hold_time: Annotated[float, Field(description="Minimum hold time in seconds")]
-    data_level: Annotated[float, Field(description="Data threshold voltage")]
-    clock_level: Annotated[float, Field(description="Clock threshold voltage")]
+    setup_time: SetupTimeField
+    hold_time: HoldTimeField
+    data_level: DataThresholdField
+    clock_level: ClockThresholdField
 
 
 class NthEdgeTriggerResult(TypedDict):
@@ -737,9 +771,9 @@ class NthEdgeTriggerResult(TypedDict):
     trigger_mode: Annotated[Literal["NTH_EDGE"], Field(description="Trigger mode (NTH_EDGE)")]
     channel: ChannelNumber
     slope: Annotated[str, Field(description="Edge direction to count")]
-    idle_time: Annotated[float, Field(description="Minimum idle time in seconds")]
-    edge_count: Annotated[int, Field(description="Which edge number to trigger on")]
-    level: Annotated[float, Field(description="Trigger level in volts")]
+    idle_time: IdleTimeField
+    edge_count: EdgeCountField
+    level: TriggerLevelField
 
 
 class WindowTriggerResult(TypedDict):
@@ -747,13 +781,13 @@ class WindowTriggerResult(TypedDict):
 
     trigger_mode: Annotated[Literal["WINDOW"], Field(description="Trigger mode (WINDOW)")]
     channel: ChannelNumber
-    slope: Annotated[str, Field(description="Edge direction")]
+    slope: EdgeDirectionField
     position: Annotated[str, Field(description="Trigger position (EXIT, ENTER, or TIME)")]
     time: Annotated[
         Optional[float], Field(description="Duration for TIME position mode")
     ]
-    level_a: Annotated[float, Field(description="Upper voltage threshold")]
-    level_b: Annotated[float, Field(description="Lower voltage threshold")]
+    level_a: UpperVoltageLevelField
+    level_b: LowerVoltageLevelField
 
 
 class DelayTriggerResult(TypedDict):
@@ -765,12 +799,12 @@ class DelayTriggerResult(TypedDict):
     slope_a: Annotated[str, Field(description="Source A edge direction")]
     slope_b: Annotated[str, Field(description="Source B edge direction")]
     delay_type: Annotated[str, Field(description="Delay condition")]
-    upper_time: Annotated[float, Field(description="Upper time limit in seconds")]
+    upper_time: UpperTimeLimitField
     lower_time: Annotated[
         Optional[float], Field(description="Lower time limit in seconds (for WITHIN)")
     ]
-    level_a: Annotated[float, Field(description="Source A threshold voltage")]
-    level_b: Annotated[float, Field(description="Source B threshold voltage")]
+    level_a: SourceAThresholdField
+    level_b: SourceBThresholdField
 
 
 # === OSCILLOSCOPE CONNECTION CLASS ===
@@ -1889,7 +1923,7 @@ def create_server(temp_dir: str) -> FastMCP:
     @mcp.tool
     @with_scope_connection
     async def set_trigger_level(
-        trigger_level: Annotated[float, Field(description="Trigger level in volts")],
+        trigger_level: TriggerLevelField,
         channel: Annotated[
             Optional[ChannelNumber],
             Field(description="Optional trigger source channel (1-4)"),
@@ -2137,10 +2171,8 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["GREATER", "LESS", "WITHIN"],
             Field(description="Width condition: GREATER, LESS, or WITHIN"),
         ],
-        upper_width: Annotated[
-            float, Field(description="Upper width limit in seconds")
-        ],
-        level: Annotated[float, Field(description="Trigger level in volts")],
+        upper_width: UpperWidthLimitField,
+        level: TriggerLevelField,
         lower_width: Annotated[
             Optional[float],
             Field(description="Lower width limit in seconds (required for WITHIN)"),
@@ -2253,11 +2285,9 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["GREATER", "LESS", "WITHIN"],
             Field(description="Time condition: GREATER, LESS, or WITHIN"),
         ],
-        upper_time: Annotated[
-            float, Field(description="Upper time limit in seconds")
-        ],
-        level_a: Annotated[float, Field(description="Start voltage level")],
-        level_b: Annotated[float, Field(description="End voltage level")],
+        upper_time: UpperTimeLimitField,
+        level_a: StartVoltageLevelField,
+        level_b: EndVoltageLevelField,
         window: Annotated[
             Literal["TA", "TB", "TAB"],
             Field(description="Time measurement window: TA, TB, or TAB"),
@@ -2390,7 +2420,7 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["PAL_SECAM", "NTSC", "480P", "576P"],
             Field(description="Video standard: PAL_SECAM, NTSC, 480P, or 576P"),
         ],
-        level: Annotated[float, Field(description="Trigger level in volts")],
+        level: TriggerLevelField,
         line_number: Annotated[
             Optional[int],
             Field(description="Line number (1-625 for PAL, 1-525 for NTSC, required for LINE mode)"),
@@ -2588,14 +2618,10 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["GREATER", "LESS", "WITHIN"],
             Field(description="Width qualification: GREATER, LESS, or WITHIN"),
         ],
-        upper_width: Annotated[
-            float, Field(description="Upper width limit in seconds")
-        ],
-        lower_width: Annotated[
-            float, Field(description="Lower width limit in seconds")
-        ],
-        level_a: Annotated[float, Field(description="Upper voltage threshold")],
-        level_b: Annotated[float, Field(description="Lower voltage threshold")],
+        upper_width: UpperWidthLimitField,
+        lower_width: LowerWidthLimitField,
+        level_a: UpperVoltageLevelField,
+        level_b: LowerVoltageLevelField,
     ) -> RuntTriggerResult:
         """
         Configure runt pulse trigger to detect incomplete transitions.
@@ -2694,10 +2720,8 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["POSITIVE", "NEGATIVE"],
             Field(description="Edge to start timeout counter: POSITIVE or NEGATIVE"),
         ],
-        timeout: Annotated[
-            float, Field(description="Idle time in seconds before trigger")
-        ],
-        level: Annotated[float, Field(description="Trigger level in volts")],
+        timeout: TimeoutDurationField,
+        level: TriggerLevelField,
     ) -> TimeoutTriggerResult:
         """
         Configure timeout/idle trigger to detect when signal remains idle.
@@ -2777,13 +2801,9 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["GREATER", "LESS", "WITHIN"],
             Field(description="Duration condition: GREATER, LESS, or WITHIN"),
         ],
-        upper_width: Annotated[
-            float, Field(description="Upper time limit in seconds")
-        ],
-        lower_width: Annotated[
-            float, Field(description="Lower time limit in seconds")
-        ],
-        level: Annotated[float, Field(description="Trigger level in volts")],
+        upper_width: UpperTimeLimitField,
+        lower_width: LowerTimeLimitField,
+        level: TriggerLevelField,
     ) -> DurationTriggerResult:
         """
         Configure duration trigger for pattern that persists for specific duration.
@@ -2869,14 +2889,10 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["H", "L"],
             Field(description="Expected data value: H (high) or L (low)"),
         ],
-        setup_time: Annotated[
-            float, Field(description="Minimum setup time in seconds")
-        ],
-        hold_time: Annotated[
-            float, Field(description="Minimum hold time in seconds")
-        ],
-        data_level: Annotated[float, Field(description="Data threshold voltage")],
-        clock_level: Annotated[float, Field(description="Clock threshold voltage")],
+        setup_time: SetupTimeField,
+        hold_time: HoldTimeField,
+        data_level: DataThresholdField,
+        clock_level: ClockThresholdField,
     ) -> SetupHoldTriggerResult:
         """
         Configure setup/hold trigger for timing violations.
@@ -2975,13 +2991,9 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["POSITIVE", "NEGATIVE"],
             Field(description="Edge direction to count: POSITIVE or NEGATIVE"),
         ],
-        idle_time: Annotated[
-            float, Field(description="Minimum idle time in seconds before starting count")
-        ],
-        edge_count: Annotated[
-            int, Field(description="Which edge number to trigger on (1-65535)")
-        ],
-        level: Annotated[float, Field(description="Trigger level in volts")],
+        idle_time: IdleTimeField,
+        edge_count: EdgeCountField,
+        level: TriggerLevelField,
     ) -> NthEdgeTriggerResult:
         """
         Configure Nth edge trigger for burst signals.
@@ -3070,8 +3082,8 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["EXIT", "ENTER", "TIME"],
             Field(description="Trigger position: EXIT, ENTER, or TIME"),
         ],
-        level_a: Annotated[float, Field(description="Upper voltage threshold")],
-        level_b: Annotated[float, Field(description="Lower voltage threshold")],
+        level_a: UpperVoltageLevelField,
+        level_b: LowerVoltageLevelField,
         time: Annotated[
             Optional[float],
             Field(description="Duration for TIME position mode (seconds, required for TIME)"),
@@ -3181,11 +3193,9 @@ def create_server(temp_dir: str) -> FastMCP:
             Literal["GREATER", "LESS", "WITHIN"],
             Field(description="Delay condition: GREATER, LESS, or WITHIN"),
         ],
-        upper_time: Annotated[
-            float, Field(description="Upper time limit in seconds")
-        ],
-        level_a: Annotated[float, Field(description="Source A threshold voltage")],
-        level_b: Annotated[float, Field(description="Source B threshold voltage")],
+        upper_time: UpperTimeLimitField,
+        level_a: SourceAThresholdField,
+        level_b: SourceBThresholdField,
         lower_time: Annotated[
             Optional[float],
             Field(description="Lower time limit in seconds (required for WITHIN)"),
