@@ -6,397 +6,11 @@ This document lists MCP tools to be added to the Rigol DHO824 MCP server, organi
 
 ---
 
-## Priority 1: Advanced Trigger Types
-
-### Pulse Width Trigger
-
-#### 5. `configure_pulse_trigger`
-**SCPI:** `:TRIGger:PULSe:*`
-
-Trigger on pulses that meet width conditions. Detects pulses narrower/wider than specified limits or within a range.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE PULSe
-:TRIGger:PULSe:SOURce <channel>
-:TRIGger:PULSe:WHEN {GREater|LESS|WITHin}
-:TRIGger:PULSe:UWIDth <time>      # Upper width limit
-:TRIGger:PULSe:LWIDth <time>      # Lower width limit (for WITHIN)
-:TRIGger:PULSe:POLarity {POSitive|NEGative}
-:TRIGger:PULSe:LEVel <voltage>
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `polarity`: "POSITIVE" or "NEGATIVE" pulse
-- `when`: "GREATER", "LESS", or "WITHIN"
-- `upper_width`: Upper width limit in seconds
-- `lower_width`: Lower width limit in seconds (optional, only for WITHIN)
-- `level`: Trigger level in volts
-
-**Returns:** Complete pulse trigger configuration
-
-**Use cases:**
-- Finding glitches (LESS than expected width)
-- Detecting timeouts (GREATER than expected)
-- Validating pulse width range (WITHIN limits)
-
----
-
-### Slope/Rise Time Trigger
-
-#### 6. `configure_slope_trigger`
-**SCPI:** `:TRIGger:SLOPe:*`
-
-Trigger on signals with specific rise/fall time characteristics. Detects edges that are too fast, too slow, or within timing range.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE SLOPe
-:TRIGger:SLOPe:SOURce <channel>
-:TRIGger:SLOPe:WHEN {GREater|LESS|WITHin}
-:TRIGger:SLOPe:TUPPer <time>      # Upper time limit
-:TRIGger:SLOPe:TLOWer <time>      # Lower time limit (for WITHIN)
-:TRIGger:SLOPe:POLarity {POSitive|NEGative}
-:TRIGger:SLOPe:ALEVel <voltage>   # Level A (start)
-:TRIGger:SLOPe:BLEVel <voltage>   # Level B (end)
-:TRIGger:SLOPe:WINDow {TA|TB|TAB}
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `polarity`: "POSITIVE" (rising) or "NEGATIVE" (falling)
-- `when`: "GREATER", "LESS", or "WITHIN"
-- `upper_time`: Upper time limit in seconds
-- `lower_time`: Lower time limit in seconds (optional, for WITHIN)
-- `level_a`: Start voltage level
-- `level_b`: End voltage level
-- `window`: Time measurement window ("TA", "TB", or "TAB")
-
-**Returns:** Complete slope trigger configuration
-
-**Use cases:**
-- Detecting slow edges (signal integrity issues)
-- Finding fast transients
-- Validating rise/fall time specifications
-
----
-
-### Video Trigger
-
-#### 7. `configure_video_trigger`
-**SCPI:** `:TRIGger:VIDeo:*`
-
-Trigger on video sync signals (NTSC, PAL, SECAM).
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE VIDeo
-:TRIGger:VIDeo:SOURce <channel>
-:TRIGger:VIDeo:POLarity {POSitive|NEGative}
-:TRIGger:VIDeo:MODE {ODDfield|EVENfield|LINE|ALINes}
-:TRIGger:VIDeo:LINE <line_number>
-:TRIGger:VIDeo:STANdard {PALSecam|NTSC|480P|576P}
-:TRIGger:VIDeo:LEVel <voltage>
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `polarity`: Sync polarity
-- `mode`: Trigger mode (odd field, even field, specific line, all lines)
-- `line_number`: Line number for LINE mode (1-625 for PAL, 1-525 for NTSC)
-- `standard`: Video standard
-- `level`: Trigger level in volts
-
-**Returns:** Complete video trigger configuration
-
----
-
-### Pattern Trigger
-
-#### 8. `configure_pattern_trigger`
-**SCPI:** `:TRIGger:PATTern:*`
-
-Trigger when multi-channel logic pattern is met. Combines up to 4 channels with AND logic.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE PATTern
-:TRIGger:PATTern:PATTern <ch1>,<ch2>,<ch3>,<ch4>  # Each: H|L|X|R|F
-:TRIGger:PATTern:LEVel<n> <voltage>
-```
-
-Pattern values per channel:
-- `H`: High (above threshold)
-- `L`: Low (below threshold)
-- `X`: Don't care
-- `R`: Rising edge
-- `F`: Falling edge
-
-**Parameters:**
-- `pattern`: 4-element list of pattern values, e.g., ["H", "L", "X", "R"]
-- `levels`: Dictionary of trigger levels per channel, e.g., {1: 1.5, 2: 2.0, 4: 1.8}
-
-**Returns:** Complete pattern trigger configuration
-
-**Use cases:**
-- Multi-signal qualification
-- State machine debugging
-- Bus protocol analysis
-
----
-
-### Runt Pulse Trigger
-
-#### 9. `configure_runt_trigger`
-**SCPI:** `:TRIGger:RUNT:*`
-
-Trigger on runt pulses - pulses that cross one threshold but fail to reach the other threshold before returning.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE RUNT
-:TRIGger:RUNT:SOURce <channel>
-:TRIGger:RUNT:POLarity {POSitive|NEGative}
-:TRIGger:RUNT:WHEN {GREater|LESS|WITHin}
-:TRIGger:RUNT:UWIDth <time>
-:TRIGger:RUNT:LWIDth <time>
-:TRIGger:RUNT:ALEVel <voltage>    # Upper threshold
-:TRIGger:RUNT:BLEVel <voltage>    # Lower threshold
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `polarity`: Runt pulse direction
-- `when`: Width qualification
-- `upper_width`: Upper width limit in seconds
-- `lower_width`: Lower width limit in seconds
-- `level_a`: Upper voltage threshold
-- `level_b`: Lower voltage threshold
-
-**Returns:** Complete runt trigger configuration
-
-**Use cases:**
-- Signal integrity analysis
-- Detecting incomplete transitions
-- Power supply glitches
-
----
-
-### Timeout/Idle Trigger
-
-#### 10. `configure_timeout_trigger`
-**SCPI:** `:TRIGger:TIMeout:*`
-
-Trigger when signal remains idle (no edge) for specified duration.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE TIMeout
-:TRIGger:TIMeout:SOURce <channel>
-:TRIGger:TIMeout:SLOPe {POSitive|NEGative}
-:TRIGger:TIMeout:TIMeout <time>
-:TRIGger:TIMeout:LEVel <voltage>
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `slope`: Edge to start timeout counter
-- `timeout`: Idle time in seconds before trigger
-- `level`: Trigger level in volts
-
-**Returns:** Complete timeout trigger configuration
-
-**Use cases:**
-- Detecting bus stalls
-- Finding protocol timeouts
-- Analyzing idle periods
-
----
-
-### Duration/Qualified Pattern Trigger
-
-#### 11. `configure_duration_trigger`
-**SCPI:** `:TRIGger:DURation:*`
-
-Trigger on pattern that persists for specific duration.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE DURation
-:TRIGger:DURation:SOURce <channel>
-:TRIGger:DURation:TYPE {GREater|LESS|WITHin}
-:TRIGger:DURation:WHEN {GREater|LESS|WITHin}
-:TRIGger:DURation:UWIDth <time>
-:TRIGger:DURation:LWIDth <time>
-:TRIGger:DURation:LEVel <voltage>
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `pattern_type`: Pattern qualifier
-- `when`: Duration condition
-- `upper_width`: Upper time limit in seconds
-- `lower_width`: Lower time limit in seconds
-- `level`: Trigger level in volts
-
-**Returns:** Complete duration trigger configuration
-
----
-
-### Setup/Hold Violation Trigger
-
-#### 12. `configure_setup_hold_trigger`
-**SCPI:** `:TRIGger:SHOLd:*`
-
-Trigger on setup/hold time violations between data and clock signals.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE SHOLd
-:TRIGger:SHOLd:DSrc <channel>      # Data source
-:TRIGger:SHOLd:CSrc <channel>      # Clock source
-:TRIGger:SHOLd:SLOPe {POSitive|NEGative}
-:TRIGger:SHOLd:PATTern {H|L}
-:TRIGger:SHOLd:STIMe <time>        # Setup time
-:TRIGger:SHOLd:HTIMe <time>        # Hold time
-:TRIGger:SHOLd:DLEVel <voltage>    # Data level
-:TRIGger:SHOLd:CLEVel <voltage>    # Clock level
-```
-
-**Parameters:**
-- `data_channel`: Data signal channel (1-4)
-- `clock_channel`: Clock signal channel (1-4)
-- `clock_slope`: Clock edge to check ("POSITIVE" or "NEGATIVE")
-- `data_pattern`: Expected data value ("H" or "L")
-- `setup_time`: Minimum setup time in seconds
-- `hold_time`: Minimum hold time in seconds
-- `data_level`: Data threshold voltage
-- `clock_level`: Clock threshold voltage
-
-**Returns:** Complete setup/hold trigger configuration
-
-**Use cases:**
-- Verifying timing relationships
-- Debugging synchronous interfaces
-- Validating memory timing
-
----
-
-### Nth Edge Trigger
-
-#### 13. `configure_nth_edge_trigger`
-**SCPI:** `:TRIGger:NEDGe:*`
-
-Trigger on the Nth edge after an idle period. Useful for burst signals.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE NEDGe
-:TRIGger:NEDGe:SOURce <channel>
-:TRIGger:NEDGe:SLOPe {POSitive|NEGative}
-:TRIGger:NEDGe:IDLE <time>         # Idle time before counting
-:TRIGger:NEDGe:EDGE <count>        # Which edge to trigger on
-:TRIGger:NEDGe:LEVel <voltage>
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `slope`: Edge direction to count
-- `idle_time`: Minimum idle time in seconds before starting count
-- `edge_count`: Which edge number to trigger on (1-65535)
-- `level`: Trigger level in volts
-
-**Returns:** Complete Nth edge trigger configuration
-
-**Use cases:**
-- Triggering inside burst transmissions
-- Skipping preamble/sync edges
-- Analyzing periodic burst signals
-
----
-
-### Window/Threshold Trigger
-
-#### 14. `configure_window_trigger`
-**SCPI:** `:TRIGger:WINDows:*`
-
-Trigger when signal enters or exits voltage window between two thresholds.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE WINDows
-:TRIGger:WINDows:SOURce <channel>
-:TRIGger:WINDows:SLOPe {POSitive|NEGative}
-:TRIGger:WINDows:POSition {EXIT|ENTER|TIME}
-:TRIGger:WINDows:TIME <time>       # For TIME position
-:TRIGger:WINDows:ALEVel <voltage>  # Upper threshold
-:TRIGger:WINDows:BLEVel <voltage>  # Lower threshold
-```
-
-**Parameters:**
-- `channel`: Source channel (1-4)
-- `slope`: Edge direction
-- `position`: Trigger position ("EXIT", "ENTER", or "TIME")
-- `time`: Duration for TIME position mode (seconds)
-- `level_a`: Upper voltage threshold
-- `level_b`: Lower voltage threshold
-
-**Returns:** Complete window trigger configuration
-
-**Use cases:**
-- Power supply regulation analysis
-- Detecting over/under voltage
-- Tracking signal excursions
-
----
-
-### Delay Between Signals Trigger
-
-#### 15. `configure_delay_trigger`
-**SCPI:** `:TRIGger:DELay:*`
-
-Trigger on time delay between two signal edges.
-
-**Complete SCPI sequence:**
-```
-:TRIGger:MODE DELay
-:TRIGger:DELay:SA <channel>        # Source A
-:TRIGger:DELay:SB <channel>        # Source B
-:TRIGger:DELay:SLOPea {POSitive|NEGative}
-:TRIGger:DELay:SLOPeb {POSitive|NEGative}
-:TRIGger:DELay:TYPe {GREater|LESS|WITHin}
-:TRIGger:DELay:TUPPer <time>
-:TRIGger:DELay:TLOWer <time>
-:TRIGger:DELay:LEVela <voltage>
-:TRIGger:DELay:LEVelb <voltage>
-```
-
-**Parameters:**
-- `source_a_channel`: First signal channel (1-4)
-- `source_b_channel`: Second signal channel (1-4)
-- `slope_a`: Source A edge direction
-- `slope_b`: Source B edge direction
-- `delay_type`: Delay condition ("GREATER", "LESS", "WITHIN")
-- `upper_time`: Upper time limit in seconds
-- `lower_time`: Lower time limit in seconds
-- `level_a`: Source A threshold voltage
-- `level_b`: Source B threshold voltage
-
-**Returns:** Complete delay trigger configuration
-
-**Use cases:**
-- Measuring propagation delays
-- Detecting timing skew
-- Verifying signal sequencing
-
----
-
-## Priority 2: Protocol Triggers & Decode
+## Priority 1: Protocol Triggers & Decode
 
 ### Serial Protocol Triggers
 
-#### 16. `configure_rs232_trigger`
+#### 1. `configure_rs232_trigger`
 **SCPI:** `:TRIGger:RS232:*`
 
 Trigger on UART/RS232 serial data patterns.
@@ -428,7 +42,7 @@ Trigger on UART/RS232 serial data patterns.
 
 ---
 
-#### 17. `configure_i2c_trigger`
+#### 2. `configure_i2c_trigger`
 **SCPI:** `:TRIGger:IIC:*`
 
 Trigger on I2C bus events (start, stop, address, data).
@@ -462,7 +76,7 @@ Trigger on I2C bus events (start, stop, address, data).
 
 ---
 
-#### 18. `configure_spi_trigger`
+#### 3. `configure_spi_trigger`
 **SCPI:** `:TRIGger:SPI:*`
 
 Trigger on SPI bus data patterns.
@@ -500,7 +114,7 @@ Trigger on SPI bus data patterns.
 
 ---
 
-#### 19. `configure_can_trigger`
+#### 4. `configure_can_trigger`
 **SCPI:** `:TRIGger:CAN:*`
 
 Trigger on CAN bus frames and errors.
@@ -536,7 +150,7 @@ Trigger on CAN bus frames and errors.
 
 ---
 
-#### 20. `configure_lin_trigger`
+#### 5. `configure_lin_trigger`
 **SCPI:** `:TRIGger:LIN:*`
 
 Trigger on LIN bus frames and errors.
@@ -570,7 +184,7 @@ Trigger on LIN bus frames and errors.
 
 ### Bus Decode Configuration
 
-#### 21. `configure_parallel_bus`
+#### 6. `configure_parallel_bus`
 **SCPI:** `:BUS<n>:PARallel:*`
 
 Configure parallel bus decode (up to 8 bits).
@@ -597,7 +211,7 @@ Configure parallel bus decode (up to 8 bits).
 
 ---
 
-#### 22. `configure_rs232_bus`
+#### 7. `configure_rs232_bus`
 **SCPI:** `:BUS<n>:RS232:*`
 
 Configure UART/RS232 bus decode.
@@ -630,7 +244,7 @@ Configure UART/RS232 bus decode.
 
 ---
 
-#### 23. `configure_i2c_bus`
+#### 8. `configure_i2c_bus`
 **SCPI:** `:BUS<n>:IIC:*`
 
 Configure I2C bus decode.
@@ -653,7 +267,7 @@ Configure I2C bus decode.
 
 ---
 
-#### 24. `configure_spi_bus`
+#### 9. `configure_spi_bus`
 **SCPI:** `:BUS<n>:SPI:*`
 
 Configure SPI bus decode.
@@ -688,7 +302,7 @@ Configure SPI bus decode.
 
 ---
 
-#### 25. `configure_can_bus`
+#### 10. `configure_can_bus`
 **SCPI:** `:BUS<n>:CAN:*`
 
 Configure CAN bus decode.
@@ -713,7 +327,7 @@ Configure CAN bus decode.
 
 ---
 
-#### 26. `configure_lin_bus`
+#### 11. `configure_lin_bus`
 **SCPI:** `:BUS<n>:LIN:*`
 
 Configure LIN bus decode.
@@ -736,7 +350,7 @@ Configure LIN bus decode.
 
 ---
 
-#### 27. `set_bus_display`
+#### 12. `set_bus_display`
 **SCPI:** `:BUS<n>:DISPlay {ON|OFF}`
 
 Enable or disable bus decode display on screen.
@@ -749,7 +363,7 @@ Enable or disable bus decode display on screen.
 
 ---
 
-#### 28. `set_bus_format`
+#### 13. `set_bus_format`
 **SCPI:** `:BUS<n>:FORMat {HEX|DEC|BIN|ASCii}`
 
 Set bus decode display format.
@@ -762,7 +376,7 @@ Set bus decode display format.
 
 ---
 
-#### 29. `get_bus_decoded_data`
+#### 14. `get_bus_decoded_data`
 **SCPI:** `:BUS<n>:DATA?`
 
 Retrieve decoded bus data from screen.
@@ -774,7 +388,7 @@ Retrieve decoded bus data from screen.
 
 ---
 
-#### 30. `export_bus_data`
+#### 15. `export_bus_data`
 **SCPI:** `:BUS<n>:EEXPort <filepath>`
 
 Export decoded bus data to CSV file on scope storage, then download via FTP.
@@ -793,7 +407,7 @@ Export decoded bus data to CSV file on scope storage, then download via FTP.
 
 ### Acquisition Settings
 
-#### 31. `set_acquisition_averages`
+#### 16. `set_acquisition_averages`
 **SCPI:** `:ACQuire:AVERages <count>`
 
 Set number of averages when acquisition type is AVERAGE.
@@ -807,7 +421,7 @@ Set number of averages when acquisition type is AVERAGE.
 
 ---
 
-#### 32. `configure_ultra_acquisition`
+#### 17. `configure_ultra_acquisition`
 **SCPI:** `:ACQuire:ULTRa:*`
 
 Configure Ultra Acquisition mode for high-speed waveform capture.
@@ -833,7 +447,7 @@ Configure Ultra Acquisition mode for high-speed waveform capture.
 
 ### Channel Settings
 
-#### 33. `set_channel_invert`
+#### 18. `set_channel_invert`
 **SCPI:** `:CHANnel<n>:INVert {ON|OFF}`
 
 Invert channel waveform display (multiply by -1).
@@ -846,7 +460,7 @@ Invert channel waveform display (multiply by -1).
 
 ---
 
-#### 34. `set_channel_label`
+#### 19. `set_channel_label`
 **SCPI:** `:CHANnel<n>:LABel:CONTent <text>`
 
 Set custom channel label text.
@@ -859,7 +473,7 @@ Set custom channel label text.
 
 ---
 
-#### 35. `set_channel_label_visible`
+#### 20. `set_channel_label_visible`
 **SCPI:** `:CHANnel<n>:LABel:SHOW {ON|OFF}`
 
 Show or hide custom channel label.
@@ -872,7 +486,7 @@ Show or hide custom channel label.
 
 ---
 
-#### 36. `set_channel_vernier`
+#### 21. `set_channel_vernier`
 **SCPI:** `:CHANnel<n>:VERNier {ON|OFF}`
 
 Enable fine (vernier) or coarse vertical scale adjustment.
@@ -887,7 +501,7 @@ Enable fine (vernier) or coarse vertical scale adjustment.
 
 ---
 
-#### 37. `set_channel_units`
+#### 22. `set_channel_units`
 **SCPI:** `:CHANnel<n>:UNITs {VOLt|WATT|AMPere|UNKNown}`
 
 Set voltage display units for channel.
@@ -902,7 +516,7 @@ Set voltage display units for channel.
 
 ### Timebase Settings
 
-#### 38. `set_timebase_mode`
+#### 23. `set_timebase_mode`
 **SCPI:** `:TIMebase:MODE {MAIN|XY|ROLL}`
 
 Set timebase display mode.
@@ -918,7 +532,7 @@ Set timebase display mode.
 
 ---
 
-#### 39. `enable_delayed_timebase`
+#### 24. `enable_delayed_timebase`
 **SCPI:** `:TIMebase:DELay:ENABle {ON|OFF}`
 
 Enable or disable delayed/zoom timebase (zoomed window).
@@ -930,7 +544,7 @@ Enable or disable delayed/zoom timebase (zoomed window).
 
 ---
 
-#### 40. `set_delayed_timebase_scale`
+#### 25. `set_delayed_timebase_scale`
 **SCPI:** `:TIMebase:DELay:SCALe <time>`
 
 Set zoom window horizontal scale (time/div).
@@ -944,7 +558,7 @@ Set zoom window horizontal scale (time/div).
 
 ---
 
-#### 41. `set_delayed_timebase_offset`
+#### 26. `set_delayed_timebase_offset`
 **SCPI:** `:TIMebase:DELay:OFFSet <time>`
 
 Set zoom window horizontal position.
@@ -958,7 +572,7 @@ Set zoom window horizontal position.
 
 ---
 
-#### 42. `set_timebase_vernier`
+#### 27. `set_timebase_vernier`
 **SCPI:** `:TIMebase:VERNier {ON|OFF}`
 
 Enable fine (vernier) or coarse timebase adjustment.
@@ -982,7 +596,7 @@ The dedicated hardware counter (`:COUNter:*`) provides superior accuracy and sho
 
 ---
 
-#### 43. `configure_hardware_counter`
+#### 28. `configure_hardware_counter`
 **SCPI:** `:COUNter:*`
 
 Configure hardware frequency counter in a single call.
@@ -1017,7 +631,7 @@ Configure hardware frequency counter in a single call.
 
 ---
 
-#### 44. `get_hardware_counter_value`
+#### 29. `get_hardware_counter_value`
 **SCPI:** `:COUNter:CURRent?`
 
 Get current hardware counter reading.
@@ -1028,7 +642,7 @@ Get current hardware counter reading.
 
 ---
 
-#### 45. `reset_counter_totalize`
+#### 30. `reset_counter_totalize`
 **SCPI:** `:COUNter:TOTalize:CLEar`
 
 Clear/reset the totalize counter and statistics.
@@ -1043,7 +657,7 @@ Clear/reset the totalize counter and statistics.
 
 Waveform recording captures multiple triggered waveforms into segmented memory for later analysis.
 
-#### 46. `start_waveform_recording`
+#### 31. `start_waveform_recording`
 **SCPI:** `:RECord:WRECord:*`
 
 Start recording waveforms to segmented memory.
@@ -1066,7 +680,7 @@ Start recording waveforms to segmented memory.
 
 ---
 
-#### 47. `stop_waveform_recording`
+#### 32. `stop_waveform_recording`
 **SCPI:** `:RECord:WRECord:OPERate STOP`
 
 Stop waveform recording.
@@ -1075,7 +689,7 @@ Stop waveform recording.
 
 ---
 
-#### 48. `get_recording_status`
+#### 33. `get_recording_status`
 **SCPI:** `:RECord:WRECord:*?`
 
 Query recording status and settings.
@@ -1092,7 +706,7 @@ Query recording status and settings.
 
 ---
 
-#### 49. `replay_recorded_frames`
+#### 34. `replay_recorded_frames`
 **SCPI:** `:RECord:WREPlay:*`
 
 Configure and control recorded waveform playback.
@@ -1126,7 +740,7 @@ Configure and control recorded waveform playback.
 
 ---
 
-#### 50. `export_recorded_frame`
+#### 35. `export_recorded_frame`
 **SCPI:** `:RECord:WREPlay:FCURrent + :WAV:DATA?`
 
 Export specific recorded frame as waveform data.
@@ -1155,7 +769,7 @@ Export specific recorded frame as waveform data.
 
 Reference waveforms allow saving and comparing waveforms on-screen.
 
-#### 51. `save_reference_waveform`
+#### 36. `save_reference_waveform`
 **SCPI:** `:REFerence:SAVE <source>,<ref_slot>`
 
 Save current waveform as reference.
@@ -1168,7 +782,7 @@ Save current waveform as reference.
 
 ---
 
-#### 52. `configure_reference_display`
+#### 37. `configure_reference_display`
 **SCPI:** `:REFerence:*`
 
 Configure reference waveform display.
@@ -1193,7 +807,7 @@ Configure reference waveform display.
 
 ## Priority 7: System Utilities
 
-#### 53. `reset_instrument`
+#### 38. `reset_instrument`
 **SCPI:** `*RST` or `:SYSTem:RESet`
 
 Perform factory reset of oscilloscope.
@@ -1204,7 +818,7 @@ Perform factory reset of oscilloscope.
 
 ---
 
-#### 54. `get_system_error`
+#### 39. `get_system_error`
 **SCPI:** `:SYSTem:ERRor[:NEXT]?`
 
 Query and clear next error from error queue.
@@ -1215,7 +829,7 @@ Query and clear next error from error queue.
 
 ---
 
-#### 55. `save_setup`
+#### 40. `save_setup`
 **SCPI:** `:SAVE:SETup <filepath>`
 
 Save current oscilloscope setup to internal storage, then download via FTP.
@@ -1230,7 +844,7 @@ Save current oscilloscope setup to internal storage, then download via FTP.
 
 ---
 
-#### 56. `load_setup`
+#### 41. `load_setup`
 **SCPI:** `:LOAD:SETup <filepath>`
 
 Upload setup file via FTP, then load into oscilloscope.
@@ -1244,7 +858,7 @@ Upload setup file via FTP, then load into oscilloscope.
 
 ---
 
-#### 57. `set_autoset_options`
+#### 42. `set_autoset_options`
 **SCPI:** `:AUToset:*`
 
 Configure autoset behavior.
@@ -1265,7 +879,7 @@ Configure autoset behavior.
 
 ## Priority 8: Display Settings
 
-#### 58. `configure_display`
+#### 43. `configure_display`
 **SCPI:** `:DISPlay:*`
 
 Configure display appearance.
@@ -1288,7 +902,7 @@ Configure display appearance.
 
 ## Priority 9: XY Mode (Lissajous)
 
-#### 59. `configure_xy_mode`
+#### 44. `configure_xy_mode`
 **SCPI:** `:TIMebase:XY:*`
 
 Configure XY (Lissajous) display mode.
