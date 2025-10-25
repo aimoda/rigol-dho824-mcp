@@ -51,6 +51,69 @@ async def capture_waveform(channel: int) -> dict:
 - Minimize the need for users to orchestrate complex tool sequences
 - Think: "What does the user actually want to accomplish?" not "What are the technical steps?"
 
+## User-Facing Documentation Standards
+
+**IMPORTANT**: MCP tool docstrings and Pydantic model field descriptions must NEVER mention SCPI.
+
+SCPI is an internal implementation detail. Users of this MCP server should not need to know about SCPI commands - the server abstracts this away completely.
+
+### What to Avoid
+
+```python
+# BAD: Exposing SCPI implementation details
+@server.tool("configure_trigger")
+async def configure_trigger(level: float) -> dict:
+    """
+    Configure edge trigger.
+
+    Complete SCPI sequence executed:  # ❌ DO NOT include this
+    - :TRIGger:MODE EDGE
+    - :TRIGger:EDGE:LEVel <voltage>
+
+    Args:
+        level: Trigger level in volts
+    """
+    ...
+
+class Result(TypedDict):
+    source: Annotated[str, Field(description="SCPI source channel (e.g., 'CHAN1')")]  # ❌ DO NOT mention SCPI
+```
+
+### What to Do Instead
+
+```python
+# GOOD: User-focused documentation
+@server.tool("configure_trigger")
+async def configure_trigger(level: float) -> dict:
+    """
+    Configure edge trigger.
+
+    Sets the voltage threshold for detecting signal edges.
+
+    Args:
+        level: Trigger level in volts
+    """
+    ...
+
+class Result(TypedDict):
+    source: Annotated[str, Field(description="Source channel identifier (e.g., 'CHAN1')")]  # ✅ User-friendly
+```
+
+### Where SCPI References Are Allowed
+
+SCPI references are **acceptable** in:
+- Internal code comments (e.g., `# Send SCPI command to set trigger level`)
+- Internal helper function names (e.g., `def _parse_channel_from_scpi(...)`)
+- Internal helper function docstrings
+- Comments mapping user values to SCPI values (e.g., `# Map user-friendly slope to SCPI value`)
+
+### Guidelines
+
+- Focus on **what** the tool does for the user, not **how** it does it
+- Use domain-specific terminology (oscilloscope/trigger concepts) instead of protocol-specific terms
+- Describe functionality and behavior, not implementation details
+- Keep docstrings concise and user-focused
+
 ## Type Checking
 
 **IMPORTANT**: After writing or modifying Python code, always run `pyright` to check for type errors and fix any issues found.
