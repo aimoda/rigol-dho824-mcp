@@ -1381,6 +1381,7 @@ class RigolDHO824:
         self.timeout = timeout
         self._identity = None
         self.lock = asyncio.Lock()
+        self.last_connection_error: Optional[str] = None
 
     @property
     def _instr(self) -> pyvisa.resources.MessageBasedResource:
@@ -1403,6 +1404,9 @@ class RigolDHO824:
         Returns:
             True if connection successful, False otherwise
         """
+        # Clear any previous error
+        self.last_connection_error = None
+
         # If already connected, test if connection is still alive
         if self.instrument is not None:
             try:
@@ -1410,7 +1414,7 @@ class RigolDHO824:
                 self._instr.query("*OPC?")
                 # self._instr.write('*OPC')
                 return True
-            except:
+            except Exception as e:
                 # Connection is dead, proceed to reconnect
                 print("Connection dead")
                 self.disconnect()
@@ -1419,31 +1423,44 @@ class RigolDHO824:
         try:
             if self.resource_string:
                 # Use provided resource string
-                self.instrument = cast(
-                    pyvisa.resources.MessageBasedResource,
-                    self.rm.open_resource(
-                        self.resource_string,
-                        access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
-                    ),
-                )
+                try:
+                    self.instrument = cast(
+                        pyvisa.resources.MessageBasedResource,
+                        self.rm.open_resource(
+                            self.resource_string,
+                            access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
+                        ),
+                    )
+                except Exception as e:
+                    self.last_connection_error = f"Failed to open resource '{self.resource_string}': {str(e)}"
+                    return False
             else:
                 # Auto-discover Rigol oscilloscope
-                resources = self.rm.list_resources()
-                rigol_resources = [
-                    r for r in resources if "RIGOL" in r.upper() or "0x1AB1" in r
-                ]
+                try:
+                    resources = self.rm.list_resources()
+                    rigol_resources = [
+                        r for r in resources if "RIGOL" in r.upper() or "0x1AB1" in r
+                    ]
 
-                if not rigol_resources:
+                    if not rigol_resources:
+                        # Provide detailed info about what was found
+                        if resources:
+                            self.last_connection_error = f"No Rigol devices found. Available resources: {', '.join(resources)}"
+                        else:
+                            self.last_connection_error = "No VISA resources found. Check that the oscilloscope is connected and powered on."
+                        return False
+
+                    # Try to connect to first Rigol device found
+                    self.instrument = cast(
+                        pyvisa.resources.MessageBasedResource,
+                        self.rm.open_resource(
+                            rigol_resources[0],
+                            access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
+                        ),
+                    )
+                except Exception as e:
+                    self.last_connection_error = f"Failed to auto-discover or connect to Rigol device: {str(e)}"
                     return False
-
-                # Try to connect to first Rigol device found
-                self.instrument = cast(
-                    pyvisa.resources.MessageBasedResource,
-                    self.rm.open_resource(
-                        rigol_resources[0],
-                        access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
-                    ),
-                )
 
             self._instr.timeout = self.timeout
 
@@ -1458,11 +1475,18 @@ class RigolDHO824:
             self._instr.write("*OPC")
 
             # Test connection and cache identity
-            self._identity = self._instr.query("*IDN?").strip()
+            try:
+                self._identity = self._instr.query("*IDN?").strip()
+            except Exception as e:
+                self.last_connection_error = f"Connected to device but failed to query identity: {str(e)}"
+                self.disconnect()
+                return False
 
             return True
 
-        except Exception:
+        except Exception as e:
+            # Catch-all for any unexpected errors
+            self.last_connection_error = f"Unexpected error during connection: {str(e)}"
             return False
 
     def disconnect(self):
@@ -1682,9 +1706,27 @@ def create_server(temp_dir: str) -> FastMCP:
         async def wrapper(*args, **kwargs):
             async with scope.lock:
                 if not scope.connect():
-                    raise Exception(
-                        "Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
-                    )
+                    # Build detailed error message with diagnostic information
+                    error_parts = ["Failed to connect to oscilloscope."]
+
+                    if scope.last_connection_error:
+                        error_parts.append(f"\nError: {scope.last_connection_error}")
+
+                    # Include environment variable info
+                    rigol_resource = os.getenv("RIGOL_RESOURCE", "")
+                    if rigol_resource:
+                        error_parts.append(f"\nRIGOL_RESOURCE is set to: {rigol_resource}")
+                    else:
+                        error_parts.append("\nRIGOL_RESOURCE environment variable is not set (attempting auto-discovery).")
+
+                    error_parts.append("\n\nTroubleshooting:")
+                    error_parts.append("  - Verify the oscilloscope is powered on and connected")
+                    error_parts.append("  - Check USB/network connection")
+                    error_parts.append("  - Ensure no other application is using the device")
+                    if not rigol_resource:
+                        error_parts.append("  - Set RIGOL_RESOURCE environment variable to the device's VISA resource string")
+
+                    raise Exception("".join(error_parts))
                 # Lock panel and optionally enable beeper during remote operation
                 scope._instr.write(":SYSTem:LOCKed ON")
                 if beeper_enabled:
