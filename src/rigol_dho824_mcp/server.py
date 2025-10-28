@@ -5454,15 +5454,15 @@ def create_server(temp_dir: str) -> FastMCP:
         scope._write_checked(f":ACQ:ULTR:MODE {display_mode.value}")
 
         # Set timeout
-        scope._write_checked(f":ACQ:ULTR:TIM {timeout}")
+        scope._write_checked(f":ACQ:ULTR:TIMeout {timeout}")
 
         # Set max frames
-        scope._write_checked(f":ACQ:ULTR:FMAX {max_frames}")
+        scope._write_checked(f":ACQ:ULTR:MAXFrame {max_frames}")
 
         # Verify settings
         actual_mode_str = scope._query_checked(":ACQ:ULTR:MODE?").strip()
-        actual_timeout = float(scope._query_checked(":ACQ:ULTR:TIM?"))
-        actual_max_frames = int(scope._query_checked(":ACQ:ULTR:FMAX?"))
+        actual_timeout = float(scope._query_checked(":ACQ:ULTR:TIMeout?"))
+        actual_max_frames = int(scope._query_checked(":ACQ:ULTR:MAXFrame?"))
 
         # Map SCPI response to enum
         mode_map = {
