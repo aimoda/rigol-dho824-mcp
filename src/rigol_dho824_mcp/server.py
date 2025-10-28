@@ -124,6 +124,10 @@ FrameNumberField = Annotated[int, Field(description="Specific frame number to ex
 FrameRangeStartField = Annotated[int, Field(description="Starting frame number (inclusive)", ge=1)]
 FrameRangeEndField = Annotated[int, Field(description="Ending frame number (inclusive)", ge=1)]
 
+# Recording-related fields
+FrameCountField = Annotated[int, Field(description="Number of frames to record", ge=1)]
+FrameIntervalField = Annotated[float, Field(description="Time interval between frames in seconds", ge=10e-9, le=1.0)]
+
 # Channel-related fields
 ChannelLabelField = Annotated[str, Field(description="Custom label string (max 4 characters)", max_length=4)]
 
@@ -328,6 +332,13 @@ class HardwareCounterMode(str, Enum):
     FREQUENCY = "FREQuency"  # Measures signal frequency (Hz)
     PERIOD = "PERiod"  # Measures signal period (seconds)
     TOTALIZE = "TOTalize"  # Counts total rising/falling edges
+
+
+class RecordingOperation(str, Enum):
+    """Waveform recording operation states."""
+
+    RUN = "RUN"  # Recording is running
+    STOP = "STOP"  # Recording is stopped
 
 
 class TimeCondition(str, Enum):
@@ -903,6 +914,16 @@ class ActionResult(TypedDict):
     """Result for simple action operations."""
 
     action: Annotated[SystemAction, Field(description="Action performed")]
+
+
+class WaveformRecordingResult(TypedDict):
+    """Result for waveform recording operations."""
+
+    enabled: Annotated[bool, Field(description="Whether recording is enabled")]
+    operation: Annotated[RecordingOperation, Field(description="Recording operation state")]
+    frames: FrameCountField
+    frame_interval: FrameIntervalField
+    max_frames: Annotated[int, Field(description="Maximum frames available")]
 
 
 class ScreenshotResult(TypedDict):
@@ -2620,6 +2641,83 @@ def create_server(temp_dir: str) -> FastMCP:
             result["trigger_slope"] = map_trigger_slope_response(raw_slope)
 
         return result
+
+    # === WAVEFORM RECORDING TOOLS ===
+
+    @mcp.tool
+    @with_scope_connection
+    async def start_waveform_recording(
+        frames: FrameCountField | None = None,
+        frame_interval: FrameIntervalField = 10e-9,
+    ) -> WaveformRecordingResult:
+        """
+        Start recording waveforms to segmented memory.
+
+        Configures and starts waveform recording mode, which captures multiple
+        waveform frames at specified intervals. Useful for capturing signal events
+        over time.
+        """
+        # Enable waveform recording
+        scope.instrument.write(":RECord:WRECord:ENABle ON")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set number of frames (None = use MAX)
+        if frames is None:
+            scope.instrument.write(":RECord:WRECord:FRAMes:MAX")  # type: ignore[reportAttributeAccessIssue]
+        else:
+            scope.instrument.write(f":RECord:WRECord:FRAMes {frames}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Set frame interval
+        scope.instrument.write(f":RECord:WRECord:FINTerval {frame_interval}")  # type: ignore[reportAttributeAccessIssue]
+
+        # Start recording
+        scope.instrument.write(":RECord:WRECord:OPERate RUN")  # type: ignore[reportAttributeAccessIssue]
+
+        # Brief pause for settings to take effect
+        time.sleep(0.1)
+
+        # Query current state to confirm
+        enabled = bool(int(scope.instrument.query(":RECord:WRECord:ENABle?")))  # type: ignore[reportAttributeAccessIssue]
+        operation_str = scope.instrument.query(":RECord:WRECord:OPERate?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_frames = int(scope.instrument.query(":RECord:WRECord:FRAMes?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_interval = float(scope.instrument.query(":RECord:WRECord:FINTerval?"))  # type: ignore[reportAttributeAccessIssue]
+        max_frames = int(scope.instrument.query(":RECord:WRECord:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+
+        return WaveformRecordingResult(
+            enabled=enabled,
+            operation=RecordingOperation(operation_str),
+            frames=actual_frames,
+            frame_interval=actual_interval,
+            max_frames=max_frames,
+        )
+
+    @mcp.tool
+    @with_scope_connection
+    async def stop_waveform_recording() -> WaveformRecordingResult:
+        """
+        Stop waveform recording.
+
+        Stops the current recording operation and returns the final recording state.
+        """
+        # Stop recording
+        scope.instrument.write(":RECord:WRECord:OPERate STOP")  # type: ignore[reportAttributeAccessIssue]
+
+        # Brief pause
+        time.sleep(0.1)
+
+        # Query current state
+        enabled = bool(int(scope.instrument.query(":RECord:WRECord:ENABle?")))  # type: ignore[reportAttributeAccessIssue]
+        operation_str = scope.instrument.query(":RECord:WRECord:OPERate?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_frames = int(scope.instrument.query(":RECord:WRECord:FRAMes?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_interval = float(scope.instrument.query(":RECord:WRECord:FINTerval?"))  # type: ignore[reportAttributeAccessIssue]
+        max_frames = int(scope.instrument.query(":RECord:WRECord:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+
+        return WaveformRecordingResult(
+            enabled=enabled,
+            operation=RecordingOperation(operation_str),
+            frames=actual_frames,
+            frame_interval=actual_interval,
+            max_frames=max_frames,
+        )
 
     # === TRIGGER CONFIGURATION TOOLS ===
 
