@@ -43,7 +43,9 @@ jobs:
         id: version
         run: |
           VERSION=$(grep -m 1 'version = ' pyproject.toml | cut -d'"' -f2)
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_hash=$VERSION-$SHORT_SHA" >> $GITHUB_OUTPUT
 
       - name: Extract metadata (tags, labels)
         id: meta
@@ -57,6 +59,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ steps.version.outputs.version }},enable={{is_default_branch}}
+            type=raw,value=${{ steps.version.outputs.version_hash }},enable={{is_default_branch}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
