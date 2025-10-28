@@ -29,6 +29,95 @@ claude mcp add --scope user rigol-dho824 -- <path-to-this-repo>/venv/bin/rigol-d
 
 Replace `<path-to-this-repo>` with the actual path to this repository.
 
+## Docker Deployment
+
+The easiest way to use this MCP server is via Docker, which eliminates dependency management and provides isolation.
+
+### Quick Start
+
+Pull the pre-built image from GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/aimoda/rigol-dho824-mcp:latest
+```
+
+### Required Configuration
+
+**IMPORTANT:** You must provide the `RIGOL_RESOURCE` environment variable when running the container. This tells the server how to connect to your network-connected oscilloscope.
+
+```bash
+docker run -i --rm \
+  -e RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR" \
+  ghcr.io/aimoda/rigol-dho824-mcp:latest
+```
+
+Replace `192.168.1.100` with your oscilloscope's IP address.
+
+### Using with Claude Code
+
+Create a `.mcp.json` file in your project directory (or copy from `.mcp.json.example`):
+
+```json
+{
+  "mcpServers": {
+    "rigol-dho824": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "RIGOL_RESOURCE",
+        "-e",
+        "VISA_TIMEOUT",
+        "-e",
+        "RIGOL_BEEPER_ENABLED",
+        "ghcr.io/aimoda/rigol-dho824-mcp:latest"
+      ],
+      "env": {
+        "RIGOL_RESOURCE": "TCPIP0::192.168.1.100::inst0::INSTR",
+        "VISA_TIMEOUT": "30000",
+        "RIGOL_BEEPER_ENABLED": "false"
+      }
+    }
+  }
+}
+```
+
+Replace `192.168.1.100` with your oscilloscope's IP address.
+
+After configuring, restart Claude Code to load the MCP server.
+
+### Optional Environment Variables
+
+- `VISA_TIMEOUT`: Communication timeout in milliseconds (default: 30000)
+- `RIGOL_BEEPER_ENABLED`: Enable/disable oscilloscope beeper sounds (default: false)
+
+### Troubleshooting
+
+#### Container exits immediately
+- Ensure you're using the `-i` flag (interactive mode)
+- Verify `RIGOL_RESOURCE` is set correctly
+
+#### Cannot connect to oscilloscope
+- Verify oscilloscope IP address and network connectivity (`ping <ip-address>`)
+- Check oscilloscope's remote control settings are enabled
+
+#### Environment variables not working
+- Ensure you're using `-e VARIABLE_NAME` in the Docker args array
+- Set the actual values in the `env` field of `.mcp.json`
+
+### Building Locally
+
+To build the Docker image yourself:
+
+```bash
+docker build -t rigol-dho824-mcp:local .
+```
+
+Then use `rigol-dho824-mcp:local` as the image name in your configuration.
+
 ## Configuration
 
 The server can be configured using environment variables. Create a `.env` file from the example:
@@ -40,8 +129,7 @@ cp .env.example .env
 Then edit `.env` to set your configuration:
 
 - `RIGOL_RESOURCE`: VISA resource string for the oscilloscope
-  - USB example: `USB0::0x1AB1::0x0515::DHO824XXXXXXXXX::INSTR`
-  - LAN example: `TCPIP0::192.168.1.100::inst0::INSTR`
+  - Example: `TCPIP0::192.168.1.100::inst0::INSTR`
   - Leave empty for auto-discovery
 - `VISA_TIMEOUT`: Communication timeout in milliseconds (default: 5000)
 
@@ -53,7 +141,7 @@ Then edit `.env` to set your configuration:
 python -m rigol_dho824_mcp.server
 
 # Or set resource string via environment variable
-export RIGOL_RESOURCE="USB0::0x1AB1::0x0515::DHO824XXXXXXXXX::INSTR"
+export RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR"
 python -m rigol_dho824_mcp.server
 ```
 
