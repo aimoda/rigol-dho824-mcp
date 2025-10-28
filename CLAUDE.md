@@ -69,9 +69,6 @@ async def configure_trigger(level: float) -> dict:
     Complete SCPI sequence executed:  # ❌ DO NOT include this
     - :TRIGger:MODE EDGE
     - :TRIGger:EDGE:LEVel <voltage>
-
-    Args:
-        level: Trigger level in volts
     """
     ...
 
@@ -89,9 +86,6 @@ async def configure_trigger(level: float) -> dict:
     Configure edge trigger.
 
     Sets the voltage threshold for detecting signal edges.
-
-    Args:
-        level: Trigger level in volts
     """
     ...
 
@@ -113,6 +107,7 @@ SCPI references are **acceptable** in:
 - Use domain-specific terminology (oscilloscope/trigger concepts) instead of protocol-specific terms
 - Describe functionality and behavior, not implementation details
 - Keep docstrings concise and user-focused
+- **Do NOT include `Args:` or `Returns:` sections** - the MCP framework auto-generates parameter and return documentation from Pydantic `Field()` annotations, making manual documentation redundant
 
 ## Type Checking
 
