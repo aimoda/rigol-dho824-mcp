@@ -118,7 +118,7 @@ WidthConditionField = Annotated[str, Field(description="Width condition (GREATER
 # Acquisition-related fields
 AveragesCountField = Annotated[int, Field(description="Number of averages (2-65536)", ge=2, le=65536)]
 UltraTimeoutField = Annotated[float, Field(description="Timeout duration in seconds")]
-MaxFramesField = Annotated[int, Field(description="Maximum frames to capture")]
+MaxFramesField = Annotated[int, Field(description="Maximum frames to capture (1-100; MOSaic mode limited to 80)", ge=1, le=100)]
 
 # Frame export fields
 FrameNumberField = Annotated[int, Field(description="Specific frame number to export", ge=1)]
