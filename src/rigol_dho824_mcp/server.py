@@ -496,10 +496,9 @@ class CANIDType(str, Enum):
 class LINStandard(str, Enum):
     """LIN protocol versions."""
 
-    V1_0 = "1P0"
-    V2_0 = "2P0"
-    V2_1 = "2P1"
-    V2_2 = "2P2"
+    V1_X = "V1X"
+    V2_X = "V2X"
+    MIXED = "MIX"
 
 
 class LINWhen(str, Enum):
@@ -516,10 +515,9 @@ class LINWhen(str, Enum):
 class LINErrorType(str, Enum):
     """LIN error types."""
 
-    SYNC_ERROR = "SYNError"
-    PARITY_ERROR = "PARError"
-    CHECKSUM_ERROR = "CHKError"
-    TIMEOUT_ERROR = "TOUTerror"
+    SYNC_ERROR = "SYNC"
+    PARITY_ERROR = "ID"
+    CHECKSUM_ERROR = "CHECk"
 
 
 class BusMode(str, Enum):
@@ -3062,7 +3060,7 @@ def create_server(temp_dir: str) -> FastMCP:
         when_map = {
             "GREATER": "GRE",
             "LESS": "LESS",
-            "WITHIN": "WITH",
+            "WITHIN": "GLES",
         }
         scope._write_checked(f":TRIG:PULS:WHEN {when_map[when]}")
 
@@ -3099,7 +3097,7 @@ def create_server(temp_dir: str) -> FastMCP:
             actual_lower = float(scope._query_checked(":TRIG:PULS:LWID?"))
 
         # Map responses back to user-friendly format
-        when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+        when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "GLES": "WITHIN"}
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
 
         return PulseTriggerResult(
@@ -3161,7 +3159,7 @@ def create_server(temp_dir: str) -> FastMCP:
         when_map = {
             "GREATER": "GRE",
             "LESS": "LESS",
-            "WITHIN": "WITH",
+            "WITHIN": "GLES",
         }
         scope._write_checked(f":TRIG:SLOP:WHEN {when_map[when]}")
 
@@ -3204,7 +3202,7 @@ def create_server(temp_dir: str) -> FastMCP:
             actual_lower = float(scope._query_checked(":TRIG:SLOP:TLOW?"))
 
         # Map responses back to user-friendly format
-        when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+        when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "GLES": "WITHIN"}
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
 
         return SlopeTriggerResult(
@@ -3434,7 +3432,7 @@ def create_server(temp_dir: str) -> FastMCP:
         when_map = {
             "GREATER": "GRE",
             "LESS": "LESS",
-            "WITHIN": "WITH",
+            "WITHIN": "GLES",
         }
         scope._write_checked(f":TRIG:RUNT:WHEN {when_map[when]}")
 
@@ -3460,7 +3458,7 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # Map responses back
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
-        when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+        when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "GLES": "WITHIN"}
 
         return RuntTriggerResult(
             trigger_mode="RUNT",
@@ -3539,12 +3537,12 @@ def create_server(temp_dir: str) -> FastMCP:
     async def configure_duration_trigger(
         channel: ChannelNumber,
         pattern_type: Annotated[
-            Literal["GREATER", "LESS", "WITHIN"],
-            Field(description="Pattern qualifier: GREATER, LESS, or WITHIN"),
+            Literal["GREATER", "LESS", "WITHIN", "OUTSIDE"],
+            Field(description="Pattern qualifier: GREATER, LESS, WITHIN, or OUTSIDE"),
         ],
         when: Annotated[
-            Literal["GREATER", "LESS", "WITHIN"],
-            Field(description="Duration condition: GREATER, LESS, or WITHIN"),
+            Literal["GREATER", "LESS", "WITHIN", "OUTSIDE"],
+            Field(description="Duration condition: GREATER, LESS, WITHIN, or OUTSIDE"),
         ],
         upper_width: UpperTimeLimitField,
         lower_width: LowerTimeLimitField,
@@ -3565,7 +3563,8 @@ def create_server(temp_dir: str) -> FastMCP:
         condition_map = {
             "GREATER": "GRE",
             "LESS": "LESS",
-            "WITHIN": "WITH",
+            "WITHIN": "GLES",
+            "OUTSIDE": "UNGL",
         }
         scope._write_checked(f":TRIG:DUR:TYPE {condition_map[pattern_type]}")
         scope._write_checked(f":TRIG:DUR:WHEN {condition_map[when]}")
@@ -3589,7 +3588,7 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_channel = _parse_channel_from_scpi(actual_source)
 
         # Map responses back
-        condition_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+        condition_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "GLES": "WITHIN", "UNGL": "OUTSIDE"}
 
         return DurationTriggerResult(
             trigger_mode="DURATION",
@@ -3891,14 +3890,14 @@ def create_server(temp_dir: str) -> FastMCP:
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._write_checked(f":TRIG:DEL:SLOPA {slope_map[slope_a]}")
-        scope._write_checked(f":TRIG:DEL:SLOPB {slope_map[slope_b]}")
+        scope._write_checked(f":TRIG:DEL:ASLOP {slope_map[slope_a]}")
+        scope._write_checked(f":TRIG:DEL:BSLOP {slope_map[slope_b]}")
 
         # Map delay type to SCPI format
         type_map = {
             "GREATER": "GRE",
             "LESS": "LESS",
-            "WITHIN": "WITH",
+            "WITHIN": "GLES",
         }
         scope._write_checked(f":TRIG:DEL:TYPE {type_map[delay_type]}")
 
@@ -3914,8 +3913,8 @@ def create_server(temp_dir: str) -> FastMCP:
         # Verify configuration
         actual_sa = scope._query_checked(":TRIG:DEL:SA?").strip()
         actual_sb = scope._query_checked(":TRIG:DEL:SB?").strip()
-        actual_slope_a = scope._query_checked(":TRIG:DEL:SLOPA?").strip()
-        actual_slope_b = scope._query_checked(":TRIG:DEL:SLOPB?").strip()
+        actual_slope_a = scope._query_checked(":TRIG:DEL:ASLOP?").strip()
+        actual_slope_b = scope._query_checked(":TRIG:DEL:BSLOP?").strip()
         actual_type = scope._query_checked(":TRIG:DEL:TYPE?").strip()
         actual_upper = float(scope._query_checked(":TRIG:DEL:TUPP?"))
         actual_level_a = float(scope._query_checked(":TRIG:DEL:LEVA?"))
@@ -3932,7 +3931,7 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # Map responses back
         slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
-        type_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
+        type_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "GLES": "WITHIN"}
 
         return DelayTriggerResult(
             trigger_mode="DELAY",
@@ -4272,7 +4271,7 @@ def create_server(temp_dir: str) -> FastMCP:
         scope._write_checked(":TRIG:SPI:WHEN TOUT")
 
         # Set timeout
-        scope._write_checked(f":TRIG:SPI:TIM {timeout}")
+        scope._write_checked(f":TRIG:SPI:TIMeout {timeout}")
 
         # Set data width
         scope._write_checked(f":TRIG:SPI:WIDT {data_width}")
@@ -4291,7 +4290,7 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_sclk = scope._query_checked(":TRIG:SPI:CLK?").strip()
         actual_slope = scope._query_checked(":TRIG:SPI:SLOP?").strip()
         actual_when = scope._query_checked(":TRIG:SPI:WHEN?").strip()
-        actual_timeout = float(scope._query_checked(":TRIG:SPI:TIM?"))
+        actual_timeout = float(scope._query_checked(":TRIG:SPI:TIMeout?"))
         actual_width = int(scope._query_checked(":TRIG:SPI:WIDT?"))
         actual_data = int(scope._query_checked(":TRIG:SPI:DATA?"))
         actual_clevel = float(scope._query_checked(":TRIG:SPI:CLEV?"))
@@ -4392,33 +4391,38 @@ def create_server(temp_dir: str) -> FastMCP:
         # Set baud rate
         scope._write_checked(f":TRIG:CAN:BAUD {baud_rate}")
 
-        # Map signal type to SCPI format
-        signal_scpi = CANSignalType[signal_type].value
+        # Map signal type to SCPI format (trigger uses different values than decode)
+        signal_trigger_map = {
+            "RX": "H",
+            "TX": "L",
+            "DIFF": "DIFF",
+        }
+        signal_scpi = signal_trigger_map.get(signal_type, signal_type)
         scope._write_checked(f":TRIG:CAN:STYPE {signal_scpi}")
 
         # Map when condition to SCPI format
         when_map = {
-            "START": "STAR",
-            "FRAME": "FRAM",
-            "IDENTIFIER": "IDEN",
+            "START": "SOF",
+            "FRAME": "IDFR",
+            "IDENTIFIER": "ID",
             "DATA": "DATA",
-            "ID_DATA": "IDDA",
+            "ID_DATA": "IDD",
             "ERROR": "ERR",
-            "END": "END",
+            "END": "EOF",
             "ACK": "ACK",
         }
         scope._write_checked(f":TRIG:CAN:WHEN {when_map[when]}")
 
         # Set sample point
-        scope._write_checked(f":TRIG:CAN:SAMP {sample_point}")
+        scope._write_checked(f":TRIG:CAN:SPOint {sample_point}")
 
         # Set frame type
         frame_scpi = CANFrameType[frame_type].value
-        scope._write_checked(f":TRIG:CAN:FTYP {frame_scpi}")
+        scope._write_checked(f":TRIG:CAN:DEFine {frame_scpi}")
 
         # Set ID type
         id_scpi = CANIDType[id_type].value
-        scope._write_checked(f":TRIG:CAN:ITYP {id_scpi}")
+        scope._write_checked(f":TRIG:CAN:EXTended {id_scpi}")
 
         # Set identifier if needed
         if when in ["IDENTIFIER", "ID_DATA"] and identifier is not None:
@@ -4436,9 +4440,9 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_baud = int(scope._query_checked(":TRIG:CAN:BAUD?"))
         actual_signal = scope._query_checked(":TRIG:CAN:STYPE?").strip()
         actual_when = scope._query_checked(":TRIG:CAN:WHEN?").strip()
-        actual_sample = int(scope._query_checked(":TRIG:CAN:SAMP?"))
-        actual_frame = scope._query_checked(":TRIG:CAN:FTYP?").strip()
-        actual_id_type = scope._query_checked(":TRIG:CAN:ITYP?").strip()
+        actual_sample = int(scope._query_checked(":TRIG:CAN:SPOint?"))
+        actual_frame = scope._query_checked(":TRIG:CAN:DEFine?").strip()
+        actual_id_type = scope._query_checked(":TRIG:CAN:EXTended?").strip()
         actual_level = float(scope._query_checked(":TRIG:CAN:LEV?"))
 
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -4453,16 +4457,16 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # Map responses back
         when_reverse = {
-            "STAR": "START",
-            "FRAM": "FRAME",
-            "IDEN": "IDENTIFIER",
+            "SOF": "START",
+            "IDFR": "FRAME",
+            "ID": "IDENTIFIER",
             "DATA": "DATA",
-            "IDDA": "ID_DATA",
+            "IDD": "ID_DATA",
             "ERR": "ERROR",
-            "END": "END",
+            "EOF": "END",
             "ACK": "ACK",
         }
-        signal_reverse = {"RX": "RX", "TX": "TX", "DIFF": "DIFF"}
+        signal_reverse = {"H": "RX", "L": "TX", "DIFF": "DIFF", "RXTX": "DIFF"}
         frame_reverse = {"DATA": "DATA", "REM": "REMOTE"}
         id_type_reverse = {"STAN": "STANDARD", "EXT": "EXTENDED"}
 
@@ -4532,8 +4536,13 @@ def create_server(temp_dir: str) -> FastMCP:
         # Set source channel
         scope._write_checked(f":TRIG:LIN:SOUR CHAN{channel}")
 
-        # Map standard to SCPI format
-        standard_scpi = LINStandard[standard].value
+        # Map standard to SCPI format (trigger uses different values than decode)
+        standard_trigger_map = {
+            "V1_X": "1X",
+            "V2_X": "2X",
+            "MIXED": "BOTH",
+        }
+        standard_scpi = standard_trigger_map.get(standard, standard)
         scope._write_checked(f":TRIG:LIN:STAN {standard_scpi}")
 
         # Set baud rate
@@ -4541,10 +4550,10 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # Map when condition to SCPI format
         when_map = {
-            "SYNC": "SYNC",
-            "IDENTIFIER": "IDEN",
+            "SYNC": "SYNCbreak",
+            "IDENTIFIER": "ID",
             "DATA": "DATA",
-            "ID_DATA": "IDDA",
+            "ID_DATA": "IDData",
             "ERROR": "ERR",
             "WAKEUP": "AWAK",
         }
@@ -4553,7 +4562,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Set error type if ERROR mode
         if when == "ERROR" and error_type is not None:
             error_scpi = LINErrorType[error_type].value
-            scope._write_checked(f":TRIG:LIN:ETYP {error_scpi}")
+            scope._write_checked(f":TRIG:LIN:ERRor {error_scpi}")
 
         # Set identifier if needed
         if when in ["IDENTIFIER", "ID_DATA"] and identifier is not None:
@@ -4581,12 +4590,11 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_data: Optional[str] = None
 
         if when == "ERROR":
-            err_type = scope._query_checked(":TRIG:LIN:ETYP?").strip()
+            err_type = scope._query_checked(":TRIG:LIN:ERRor?").strip()
             error_reverse = {
-                "SYNE": "SYNC_ERROR",
-                "PARE": "PARITY_ERROR",
-                "CHKE": "CHECKSUM_ERROR",
-                "TOUT": "TIMEOUT_ERROR",
+                "SYNC": "SYNC_ERROR",
+                "ID": "PARITY_ERROR",
+                "CHECk": "CHECKSUM_ERROR",
             }
             actual_error = error_reverse.get(err_type)
 
@@ -4599,13 +4607,15 @@ def create_server(temp_dir: str) -> FastMCP:
         # Map responses back
         when_reverse = {
             "SYNC": "SYNC",
-            "IDEN": "IDENTIFIER",
+            "SYNCbreak": "SYNC",
+            "ID": "IDENTIFIER",
             "DATA": "DATA",
-            "IDDA": "ID_DATA",
+            "IDD": "ID_DATA",
+            "IDData": "ID_DATA",
             "ERR": "ERROR",
             "AWAK": "WAKEUP",
         }
-        standard_reverse = {"1P0": "V1_0", "2P0": "V2_0", "2P1": "V2_1", "2P2": "V2_2"}
+        standard_reverse = {"1X": "V1_X", "2X": "V2_X", "BOTH": "MIXED"}
 
         return LINTriggerResult(
             trigger_mode="LIN",
@@ -4666,7 +4676,9 @@ def create_server(temp_dir: str) -> FastMCP:
         for bit_pos, chan in bit_assignments.items():
             if bit_pos < 0 or bit_pos >= width:
                 raise ValueError(f"Bit position {bit_pos} out of range for width {width}")
-            scope._write_checked(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR CHAN{chan}")
+            # Use two-step sequence: first select the bit, then set its source
+            scope._write_checked(f":BUS{bus_number}:PAR:BITX {bit_pos}")
+            scope._write_checked(f":BUS{bus_number}:PAR:SOUR CHAN{chan}")
 
         # Set clock channel if provided
         if clock_channel is not None:
@@ -4848,16 +4860,22 @@ def create_server(temp_dir: str) -> FastMCP:
         scope._write_checked(f":BUS{bus_number}:IIC:SCLK:SOUR CHAN{scl_channel}")
         scope._write_checked(f":BUS{bus_number}:IIC:SDA:SOUR CHAN{sda_channel}")
 
-        # Set address width
-        scope._write_checked(f":BUS{bus_number}:IIC:ADDR {address_width}")
+        # Set address width (translate numeric to SCPI format)
+        addr_map = {"7": "NORM", "10": "RW"}
+        addr_scpi = addr_map.get(str(address_width), "NORM")
+        scope._write_checked(f":BUS{bus_number}:IIC:ADDR {addr_scpi}")
 
         # Verify configuration
         actual_scl = scope._query_checked(f":BUS{bus_number}:IIC:SCLK:SOUR?").strip()
         actual_sda = scope._query_checked(f":BUS{bus_number}:IIC:SDA:SOUR?").strip()
-        actual_width = scope._query_checked(f":BUS{bus_number}:IIC:ADDR?").strip()
+        actual_width_scpi = scope._query_checked(f":BUS{bus_number}:IIC:ADDR?").strip()
 
         actual_scl_channel = _parse_channel_from_scpi(actual_scl)
         actual_sda_channel = _parse_channel_from_scpi(actual_sda)
+
+        # Translate SCPI address width back to numeric
+        addr_reverse = {"NORM": "7", "RW": "10"}
+        actual_width = addr_reverse.get(actual_width_scpi, address_width)
 
         return I2CBusResult(
             bus_number=bus_number,
@@ -4941,7 +4959,7 @@ def create_server(temp_dir: str) -> FastMCP:
         scope._write_checked(f":BUS{bus_number}:SPI:MODE {spi_mode_scpi}")
 
         # Set timeout
-        scope._write_checked(f":BUS{bus_number}:SPI:TIM:TIME {timeout}")
+        scope._write_checked(f":BUS{bus_number}:SPI:TIMeout:TIME {timeout}")
 
         # Verify configuration
         actual_sclk = scope._query_checked(f":BUS{bus_number}:SPI:SCLK:SOUR?").strip()
@@ -4949,7 +4967,7 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_data_bits = int(scope._query_checked(f":BUS{bus_number}:SPI:DBIT?"))
         actual_bit_order = scope._query_checked(f":BUS{bus_number}:SPI:END?").strip()
         actual_spi_mode = scope._query_checked(f":BUS{bus_number}:SPI:MODE?").strip()
-        actual_timeout = float(scope._query_checked(f":BUS{bus_number}:SPI:TIM:TIME?"))
+        actual_timeout = float(scope._query_checked(f":BUS{bus_number}:SPI:TIMeout:TIME?"))
 
         actual_sclk_channel = _parse_channel_from_scpi(actual_sclk)
 
@@ -5029,13 +5047,13 @@ def create_server(temp_dir: str) -> FastMCP:
         scope._write_checked(f":BUS{bus_number}:CAN:BAUD {baud_rate}")
 
         # Set sample point
-        scope._write_checked(f":BUS{bus_number}:CAN:SAMP {sample_point}")
+        scope._write_checked(f":BUS{bus_number}:CAN:SPOint {sample_point}")
 
         # Verify configuration
         actual_source = scope._query_checked(f":BUS{bus_number}:CAN:SOUR?").strip()
         actual_signal = scope._query_checked(f":BUS{bus_number}:CAN:STYPE?").strip()
         actual_baud = int(scope._query_checked(f":BUS{bus_number}:CAN:BAUD?"))
-        actual_sample = int(scope._query_checked(f":BUS{bus_number}:CAN:SAMP?"))
+        actual_sample = int(scope._query_checked(f":BUS{bus_number}:CAN:SPOint?"))
 
         actual_source_channel = _parse_channel_from_scpi(actual_source)
 
@@ -5060,7 +5078,7 @@ def create_server(temp_dir: str) -> FastMCP:
             Field(description="Parity mode"),
         ],
         standard: Annotated[
-            Literal["V1_0", "V2_0", "V2_1", "V2_2"],
+            Literal["V1_X", "V2_X", "MIXED"],
             Field(description="LIN version"),
         ],
     ) -> LINBusResult:
@@ -5080,7 +5098,7 @@ def create_server(temp_dir: str) -> FastMCP:
         scope._write_checked(f":BUS{bus_number}:LIN:SOUR CHAN{source_channel}")
 
         # Set parity
-        parity_scpi = "ENH" if parity == "ENHANCED" else "CLAS"
+        parity_scpi = "ON" if parity == "ENHANCED" else "OFF"
         scope._write_checked(f":BUS{bus_number}:LIN:PAR {parity_scpi}")
 
         # Set standard
@@ -5094,8 +5112,8 @@ def create_server(temp_dir: str) -> FastMCP:
 
         actual_source_channel = _parse_channel_from_scpi(actual_source)
 
-        parity_reverse = {"ENH": "ENHANCED", "CLAS": "CLASSIC"}
-        standard_reverse = {"1P0": "V1_0", "2P0": "V2_0", "2P1": "V2_1", "2P2": "V2_2"}
+        parity_reverse = {"ON": "ENHANCED", "OFF": "CLASSIC"}
+        standard_reverse = {"V1X": "V1_X", "V2X": "V2_X", "MIX": "MIXED"}
 
         return LINBusResult(
             bus_number=bus_number,
