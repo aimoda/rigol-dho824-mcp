@@ -1802,12 +1802,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Voltage conversion formula: voltage = (raw_value - y_origin - y_reference) * y_increment
         Time calculation formula: time = sample_index * x_increment + x_origin
-
-        Args:
-            channels: List of channel numbers to capture (1-4), defaults to [1]
-
-        Returns:
-            Dictionary containing list of channel data with conversion parameters and optional WFM file path
         """
         # Generate unique capture ID based on timestamp
         capture_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
@@ -2032,13 +2026,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> ChannelEnableResult:
         """
         Enable or disable a channel display.
-
-        Args:
-            channel: Channel number (1-4)
-            enabled: True to enable, False to disable
-
-        Returns:
-            Channel enable status
         """
         state = "ON" if enabled else "OFF"
         scope.instrument.write(f":CHAN{channel}:DISP {state}")  # type: ignore[reportAttributeAccessIssue]
@@ -2058,13 +2045,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> ChannelCouplingResult:
         """
         Set channel coupling mode.
-
-        Args:
-            channel: Channel number (1-4)
-            coupling: Coupling mode (AC, DC, or GND)
-
-        Returns:
-            Channel coupling setting
         """
         # Use enum value directly
         scope.instrument.write(f":CHAN{channel}:COUP {coupling}")  # type: ignore[reportAttributeAccessIssue]
@@ -2083,13 +2063,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> ChannelProbeResult:
         """
         Set channel probe attenuation ratio.
-
-        Args:
-            channel: Channel number (1-4)
-            probe_ratio: Probe ratio (e.g., 1, 10, 100, 1000)
-
-        Returns:
-            Channel probe setting
         """
         # Format as integer if it's a whole number, otherwise as float
         probe_value = (
@@ -2124,13 +2097,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Note: Bandwidth limiting not only reduces noise but also attenuates or eliminates
         the high frequency components of the signal.
-
-        Args:
-            channel: Channel number (1-4)
-            bandwidth_limit: Bandwidth limit setting (OFF or 20MHz). Defaults to OFF
-
-        Returns:
-            Channel bandwidth setting
         """
         if bandwidth_limit is None:
             bandwidth_limit = "OFF"
@@ -2152,12 +2118,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def get_channel_status(channel: ChannelNumber) -> ChannelStatusResult:
         """
         Get comprehensive channel status and settings.
-
-        Args:
-            channel: Channel number (1-4)
-
-        Returns:
-            All channel settings
         """
         # Query all channel settings
         enabled = bool(int(scope.instrument.query(f":CHAN{channel}:DISP?")))  # type: ignore[reportAttributeAccessIssue]
@@ -2194,13 +2154,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> ChannelInvertResult:
         """
         Invert channel waveform display (multiply by -1).
-
-        Args:
-            channel: Channel number (1-4)
-            inverted: Boolean to invert
-
-        Returns:
-            Channel invert status
         """
         scope.instrument.write(f":CHAN{channel}:INV {'ON' if inverted else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2217,13 +2170,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> ChannelLabelResult:
         """
         Set custom channel label text.
-
-        Args:
-            channel: Channel number (1-4)
-            label: Custom label string (max 4 characters)
-
-        Returns:
-            Current channel label
         """
         scope.instrument.write(f':CHAN{channel}:LAB:CONT "{label}"')  # type: ignore[reportAttributeAccessIssue]
 
@@ -2240,13 +2186,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> ChannelLabelVisibilityResult:
         """
         Show or hide custom channel label.
-
-        Args:
-            channel: Channel number (1-4)
-            visible: Boolean to show/hide
-
-        Returns:
-            Label visibility status
         """
         scope.instrument.write(f":CHAN{channel}:LAB:SHOW {'ON' if visible else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2263,13 +2202,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> ChannelUnitsResult:
         """
         Set voltage display units for channel.
-
-        Args:
-            channel: Channel number (1-4)
-            units: Unit type ("VOLT", "WATT", "AMPERE", "UNKNOWN")
-
-        Returns:
-            Current channel units
         """
         scope.instrument.write(f":CHAN{channel}:UNIT {units.value}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2296,13 +2228,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> VerticalScaleResult:
         """
         Set channel vertical scale (V/div).
-
-        Args:
-            channel: Channel number (1-4)
-            vertical_scale: Vertical scale in V/div
-
-        Returns:
-            Vertical scale setting
         """
         scope.instrument.write(f":CHAN{channel}:SCAL {vertical_scale}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2320,13 +2245,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> VerticalOffsetResult:
         """
         Set channel vertical offset.
-
-        Args:
-            channel: Channel number (1-4)
-            vertical_offset: Vertical offset in volts
-
-        Returns:
-            Vertical offset setting
         """
         scope.instrument.write(f":CHAN{channel}:OFFS {vertical_offset}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2346,12 +2264,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> TimebaseScaleResult:
         """
         Set horizontal timebase scale.
-
-        Args:
-            time_per_div: Time per division in seconds
-
-        Returns:
-            Timebase scale setting
         """
         scope.instrument.write(f":TIM:MAIN:SCAL {time_per_div}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2377,12 +2289,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def set_timebase_offset(time_offset: TimeOffsetField) -> TimebaseOffsetResult:
         """
         Set horizontal timebase offset.
-
-        Args:
-            time_offset: Time offset in seconds
-
-        Returns:
-            Timebase offset setting
         """
         scope.instrument.write(f":TIM:MAIN:OFFS {time_offset}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2404,12 +2310,6 @@ def create_server(temp_dir: str) -> FastMCP:
         - **MAIN**: Normal YT mode
         - **XY**: Lissajous/XY mode (Ch1 = X axis, Ch2 = Y axis)
         - **ROLL**: Slow sweep roll mode (for low frequencies)
-
-        Args:
-            mode: Timebase mode ("MAIN", "XY", "ROLL")
-
-        Returns:
-            Current timebase mode
         """
         scope.instrument.write(f":TIM:MODE {mode.value}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2433,12 +2333,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> DelayedTimebaseEnableResult:
         """
         Enable or disable delayed/zoom timebase (zoomed window).
-
-        Args:
-            enabled: Boolean to enable zoom window
-
-        Returns:
-            Delayed timebase status
         """
         scope.instrument.write(f":TIM:DEL:ENAB {'ON' if enabled else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2456,12 +2350,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Set zoom window horizontal scale (time/div).
 
         Must enable delayed timebase first with enable_delayed_timebase(True).
-
-        Args:
-            time_per_div: Zoom window time per division in seconds
-
-        Returns:
-            Delayed timebase scale
         """
         scope.instrument.write(f":TIM:DEL:SCAL {time_per_div}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2492,12 +2380,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Set zoom window horizontal position.
 
         Must enable delayed timebase first with enable_delayed_timebase(True).
-
-        Args:
-            time_offset: Zoom window offset in seconds
-
-        Returns:
-            Delayed timebase offset
         """
         scope.instrument.write(f":TIM:DEL:OFFS {time_offset}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2513,9 +2395,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def run_acquisition() -> AcquisitionStatusResult:
         """
         Start continuous acquisition (RUN mode).
-
-        Returns:
-            Acquisition status
         """
         scope.instrument.write(":RUN")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2534,9 +2413,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def stop_acquisition() -> AcquisitionStatusResult:
         """
         Stop acquisition (STOP mode).
-
-        Returns:
-            Acquisition status
         """
         scope.instrument.write(":STOP")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2555,9 +2431,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def single_acquisition() -> AcquisitionStatusResult:
         """
         Perform single acquisition (SINGLE mode).
-
-        Returns:
-            Acquisition status
         """
         scope.instrument.write(":SING")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2576,9 +2449,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def force_trigger() -> ActionResult:
         """
         Force a trigger event.
-
-        Returns:
-            Action confirmation
         """
         scope.instrument.write(":TFOR")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2589,9 +2459,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def get_trigger_status() -> TriggerStatusResult:
         """
         Get current trigger status.
-
-        Returns:
-            Trigger status and settings
         """
         # Query trigger status
         status = scope.instrument.query(":TRIG:STAT?").strip()  # type: ignore[reportAttributeAccessIssue]
@@ -2629,12 +2496,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> TriggerModeResult:
         """
         Set trigger mode.
-
-        Args:
-            trigger_mode: Trigger mode
-
-        Returns:
-            Trigger mode setting
         """
         scope.instrument.write(f":TRIG:MODE {trigger_mode.value}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -2654,12 +2515,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def set_trigger_source(channel: ChannelNumber) -> TriggerSourceResult:
         """
         Set trigger source for edge trigger.
-
-        Args:
-            channel: Trigger source channel (1-4)
-
-        Returns:
-            Trigger source setting
         """
         # Ensure we're in edge trigger mode
         current_mode = scope.instrument.query(":TRIG:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
@@ -2691,13 +2546,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> TriggerLevelResult:
         """
         Set trigger level voltage.
-
-        Args:
-            trigger_level: Trigger level in volts
-            channel: Optional channel to set level for (defaults to current source)
-
-        Returns:
-            Trigger level setting
         """
         # If source specified, set it first
         if channel:
@@ -2725,12 +2573,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> TriggerSlopeResult:
         """
         Set trigger edge slope.
-
-        Args:
-            trigger_slope: Edge slope (POSITIVE, NEGATIVE, or EITHER)
-
-        Returns:
-            Trigger slope setting
         """
         # Map user-facing slope to SCPI value
         slope_map = {
@@ -2764,12 +2606,6 @@ def create_server(temp_dir: str) -> FastMCP:
         - **DC**: Includes both AC and DC components (full signal)
         - **LFReject**: Low frequency rejection - blocks signals <8 kHz
         - **HFReject**: High frequency rejection - blocks signals >150 kHz
-
-        Args:
-            coupling: Trigger coupling mode (AC, DC, LFReject, or HFReject)
-
-        Returns:
-            Current trigger coupling setting
         """
         # Map user-friendly coupling to SCPI format
         scope.instrument.write(f":TRIG:COUP {coupling}")  # type: ignore[reportAttributeAccessIssue]
@@ -2810,12 +2646,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Note: This is different from :RUN/:STOP/:SING commands which control acquisition state.
         Sweep mode controls *how* the scope responds to triggers, while RUN/STOP/SINGLE
         control *whether* the scope is acquiring.
-
-        Args:
-            sweep_mode: Trigger sweep mode (AUTO, NORMAL, or SINGLE)
-
-        Returns:
-            Current sweep mode setting
         """
         # TriggerSweep enum values map directly to SCPI format
         scope.instrument.write(f":TRIG:SWE {sweep_mode.value}")  # type: ignore[reportAttributeAccessIssue]
@@ -2851,12 +2681,6 @@ def create_server(temp_dir: str) -> FastMCP:
         - Ignoring ringing or oscillations after trigger point
         - Triggering on first pulse in a burst (ignore subsequent pulses)
         - Stable triggering on complex waveforms with multiple edges
-
-        Args:
-            holdoff_time: Holdoff duration in seconds (minimum: 16ns, maximum: 10s)
-
-        Returns:
-            Current holdoff time in seconds with human-readable format
         """
         # Validate range
         if holdoff_time < 16e-9 or holdoff_time > 10:
@@ -2902,12 +2726,6 @@ def create_server(temp_dir: str) -> FastMCP:
         - Needing more stable trigger behavior
 
         Trade-off: Improved stability vs. reduced sensitivity to genuine small signals.
-
-        Args:
-            enabled: True to enable noise rejection, False to disable
-
-        Returns:
-            Current noise reject status
         """
         state = "ON" if enabled else "OFF"
         scope.instrument.write(f":TRIG:NREJ {state}")  # type: ignore[reportAttributeAccessIssue]
@@ -2943,17 +2761,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Detects pulses narrower/wider than specified limits or within a range.
         Essential for finding glitches, detecting timeouts, and validating pulse widths.
-
-        Args:
-            channel: Source channel (1-4)
-            polarity: Pulse polarity - "POSITIVE" or "NEGATIVE"
-            when: Width condition - "GREATER", "LESS", or "WITHIN"
-            upper_width: Upper width limit in seconds
-            level: Trigger level in volts
-            lower_width: Lower width limit in seconds (required for WITHIN)
-
-        Returns:
-            Complete pulse trigger configuration
 
         Use cases:
         - Finding glitches (LESS than expected width)
@@ -3053,19 +2860,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Detects edges that are too fast, too slow, or within timing range.
         Essential for signal integrity analysis and validating rise/fall time specifications.
-
-        Args:
-            channel: Source channel (1-4)
-            polarity: Slope direction - "POSITIVE" (rising) or "NEGATIVE" (falling)
-            when: Time condition - "GREATER", "LESS", or "WITHIN"
-            upper_time: Upper time limit in seconds
-            level_a: Start voltage level
-            level_b: End voltage level
-            window: Time measurement window - "TA", "TB", or "TAB"
-            lower_time: Lower time limit in seconds (required for WITHIN)
-
-        Returns:
-            Complete slope trigger configuration
 
         Use cases:
         - Detecting slow edges (signal integrity issues)
@@ -3170,17 +2964,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Configure video trigger to detect video sync signals (NTSC, PAL, SECAM).
 
         Triggers on video synchronization pulses for analyzing video signals.
-
-        Args:
-            channel: Source channel (1-4)
-            polarity: Sync polarity - "POSITIVE" or "NEGATIVE"
-            mode: Trigger mode - "ODD_FIELD", "EVEN_FIELD", "LINE", or "ALL_LINES"
-            standard: Video standard - "PAL_SECAM", "NTSC", "480P", or "576P"
-            level: Trigger level in volts
-            line_number: Line number for LINE mode (1-625 for PAL, 1-525 for NTSC)
-
-        Returns:
-            Complete video trigger configuration
         """
         # Validate LINE mode requires line_number
         if mode == "LINE" and line_number is None:
@@ -3278,13 +3061,6 @@ def create_server(temp_dir: str) -> FastMCP:
         - R: Rising edge
         - F: Falling edge
 
-        Args:
-            pattern: 4-element list of pattern values, e.g., ["H", "L", "X", "R"]
-            levels: Dictionary of trigger levels per channel, e.g., {1: 1.5, 2: 2.0, 4: 1.8}
-
-        Returns:
-            Complete pattern trigger configuration
-
         Use cases:
         - Multi-signal qualification
         - State machine debugging
@@ -3354,18 +3130,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers on runt pulses - pulses that cross one threshold but fail to reach
         the other threshold before returning. Essential for signal integrity analysis.
-
-        Args:
-            channel: Source channel (1-4)
-            polarity: Runt pulse direction - "POSITIVE" or "NEGATIVE"
-            when: Width qualification - "GREATER", "LESS", or "WITHIN"
-            upper_width: Upper width limit in seconds
-            lower_width: Lower width limit in seconds
-            level_a: Upper voltage threshold
-            level_b: Lower voltage threshold
-
-        Returns:
-            Complete runt trigger configuration
 
         Use cases:
         - Signal integrity analysis
@@ -3445,15 +3209,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Triggers when signal remains idle (no edge) for specified duration.
         Essential for detecting bus stalls and protocol timeouts.
 
-        Args:
-            channel: Source channel (1-4)
-            slope: Edge to start timeout counter - "POSITIVE" or "NEGATIVE"
-            timeout: Idle time in seconds before trigger
-            level: Trigger level in volts
-
-        Returns:
-            Complete timeout trigger configuration
-
         Use cases:
         - Detecting bus stalls
         - Finding protocol timeouts
@@ -3518,17 +3273,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Configure duration trigger for pattern that persists for specific duration.
 
         Triggers on pattern that persists for specific duration.
-
-        Args:
-            channel: Source channel (1-4)
-            pattern_type: Pattern qualifier - "GREATER", "LESS", or "WITHIN"
-            when: Duration condition - "GREATER", "LESS", or "WITHIN"
-            upper_width: Upper time limit in seconds
-            lower_width: Lower time limit in seconds
-            level: Trigger level in volts
-
-        Returns:
-            Complete duration trigger configuration
         """
         # Set trigger mode to DURATION
         scope.instrument.write(":TRIG:MODE DUR")  # type: ignore[reportAttributeAccessIssue]
@@ -3599,19 +3343,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers on setup/hold time violations between data and clock signals.
         Essential for verifying timing relationships in synchronous interfaces.
-
-        Args:
-            data_channel: Data signal channel (1-4)
-            clock_channel: Clock signal channel (1-4)
-            clock_slope: Clock edge to check - "POSITIVE" or "NEGATIVE"
-            data_pattern: Expected data value - "H" or "L"
-            setup_time: Minimum setup time in seconds
-            hold_time: Minimum hold time in seconds
-            data_level: Data threshold voltage
-            clock_level: Clock threshold voltage
-
-        Returns:
-            Complete setup/hold trigger configuration
 
         Use cases:
         - Verifying timing relationships
@@ -3690,16 +3421,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Triggers on the Nth edge after an idle period. Useful for triggering
         inside burst transmissions and skipping preamble/sync edges.
 
-        Args:
-            channel: Source channel (1-4)
-            slope: Edge direction to count - "POSITIVE" or "NEGATIVE"
-            idle_time: Minimum idle time in seconds before starting count
-            edge_count: Which edge number to trigger on (1-65535)
-            level: Trigger level in volts
-
-        Returns:
-            Complete Nth edge trigger configuration
-
         Use cases:
         - Triggering inside burst transmissions
         - Skipping preamble/sync edges
@@ -3775,17 +3496,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers when signal enters or exits voltage window between two thresholds.
         Essential for power supply regulation analysis and detecting over/under voltage.
-
-        Args:
-            channel: Source channel (1-4)
-            slope: Edge direction - "POSITIVE" or "NEGATIVE"
-            position: Trigger position - "EXIT", "ENTER", or "TIME"
-            level_a: Upper voltage threshold
-            level_b: Lower voltage threshold
-            time: Duration for TIME position mode (seconds, required for TIME)
-
-        Returns:
-            Complete window trigger configuration
 
         Use cases:
         - Power supply regulation analysis
@@ -3878,20 +3588,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Triggers on time delay between two signal edges. Essential for measuring
         propagation delays, detecting timing skew, and verifying signal sequencing.
-
-        Args:
-            source_a_channel: First signal channel (1-4)
-            source_b_channel: Second signal channel (1-4)
-            slope_a: Source A edge direction - "POSITIVE" or "NEGATIVE"
-            slope_b: Source B edge direction - "POSITIVE" or "NEGATIVE"
-            delay_type: Delay condition - "GREATER", "LESS", or "WITHIN"
-            upper_time: Upper time limit in seconds
-            level_a: Source A threshold voltage
-            level_b: Source B threshold voltage
-            lower_time: Lower time limit in seconds (required for WITHIN)
-
-        Returns:
-            Complete delay trigger configuration
 
         Use cases:
         - Measuring propagation delays
@@ -4008,20 +3704,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Detects start frames, error frames, parity errors, or specific data bytes
         on RS232/UART serial communication lines.
-
-        Args:
-            channel: Source channel (1-4)
-            when: Trigger condition - "START", "ERROR", "PARITY_ERROR", or "DATA"
-            baud_rate: Baud rate in bits per second
-            parity: Parity setting
-            stop_bits: Stop bit count (1, 1.5, or 2)
-            polarity: Signal polarity
-            level: Trigger level in volts
-            data_value: Data byte to match (required for DATA mode)
-            data_bits: Number of data bits (5-8), defaults to 8
-
-        Returns:
-            Complete RS232 trigger configuration
 
         Use cases:
         - Triggering on frame start for synchronization
@@ -4140,20 +3822,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Detects I2C protocol events including start conditions, stop conditions,
         address matches, data patterns, and acknowledgment errors.
-
-        Args:
-            scl_channel: SCL (clock) channel (1-4)
-            sda_channel: SDA (data) channel (1-4)
-            when: Trigger condition
-            clock_level: SCL threshold voltage
-            data_level: SDA threshold voltage
-            address: I2C address (required for ADDRESS/ADDRESS_DATA modes)
-            data_value: Data byte (required for DATA/ADDRESS_DATA modes)
-            address_width: 7-bit or 10-bit addressing
-            direction: Transfer direction
-
-        Returns:
-            Complete I2C trigger configuration
 
         Use cases:
         - Triggering on specific device addresses
@@ -4291,22 +3959,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Detects SPI timeout conditions when no clock edges occur for the
         specified duration.
 
-        Args:
-            sclk_channel: Clock channel (1-4)
-            clock_slope: Clock edge - "POSITIVE" or "NEGATIVE"
-            when: Trigger condition (currently only "TIMEOUT" supported)
-            timeout: Timeout duration in seconds
-            data_width: Data width in bits (8, 16, 24, 32)
-            data_value: Data pattern to match
-            clock_level: SCLK threshold voltage
-            miso_channel: MISO channel (optional)
-            cs_channel: Chip select channel (optional)
-            miso_level: MISO threshold voltage
-            cs_level: CS threshold voltage
-
-        Returns:
-            Complete SPI trigger configuration
-
         Use cases:
         - Detecting bus idle/timeout conditions
         - Capturing specific data patterns
@@ -4438,21 +4090,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Detects CAN protocol events including start of frame, specific identifiers,
         data patterns, errors, and acknowledgments.
-
-        Args:
-            channel: Source channel (1-4)
-            baud_rate: CAN baud rate
-            signal_type: Signal type - RX, TX, or differential
-            when: Trigger condition
-            level: Trigger level voltage
-            sample_point: Sample point percentage (5-95%)
-            frame_type: DATA or REMOTE frame
-            id_type: STANDARD (11-bit) or EXTENDED (29-bit)
-            identifier: CAN identifier (required for IDENTIFIER/ID_DATA modes)
-            data_bytes: Data pattern (required for DATA/ID_DATA modes)
-
-        Returns:
-            Complete CAN trigger configuration
 
         Use cases:
         - Triggering on specific CAN IDs
@@ -4595,19 +4232,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Detects LIN protocol events including sync fields, identifiers,
         data patterns, errors, and wakeup signals.
 
-        Args:
-            channel: Source channel (1-4)
-            standard: LIN version
-            baud_rate: LIN baud rate
-            when: Trigger condition
-            level: Trigger level voltage
-            error_type: Error type (required for ERROR mode)
-            identifier: LIN identifier (required for IDENTIFIER/ID_DATA modes)
-            data_bytes: Data pattern (required for DATA/ID_DATA modes)
-
-        Returns:
-            Complete LIN trigger configuration
-
         Use cases:
         - Triggering on specific LIN IDs
         - Detecting LIN protocol errors
@@ -4747,17 +4371,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Sets up parallel bus decoding with configurable bit assignments,
         optional clock, and bit ordering.
 
-        Args:
-            bus_number: Bus number (1-4)
-            bit_assignments: Bit position to channel mapping, e.g., {0: 1, 1: 2, 2: 3}
-            width: Bus width in bits (1-8)
-            clock_channel: Clock channel (optional)
-            clock_polarity: Clock edge - "POSITIVE" or "NEGATIVE"
-            bit_order: Bit endianness - "LSB" or "MSB"
-
-        Returns:
-            Complete parallel bus configuration
-
         Use cases:
         - Decoding parallel data buses
         - Analyzing microprocessor buses
@@ -4856,20 +4469,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Sets up RS232/UART bus decoding with configurable TX/RX channels,
         baud rate, parity, and data format.
 
-        Args:
-            bus_number: Bus number (1-4)
-            baud_rate: Baud rate in bits per second
-            parity: Parity setting
-            stop_bits: Stop bits (1, 1.5, 2)
-            polarity: Signal polarity
-            bit_order: Bit endianness
-            tx_channel: TX channel (optional)
-            rx_channel: RX channel (optional)
-            data_bits: Number of data bits (5-9)
-
-        Returns:
-            Complete RS232 bus decode configuration
-
         Use cases:
         - Decoding UART communication
         - Analyzing serial protocols
@@ -4957,15 +4556,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Sets up I2C bus decoding with SCL/SDA channels and address width.
 
-        Args:
-            bus_number: Bus number (1-4)
-            scl_channel: SCL channel
-            sda_channel: SDA channel
-            address_width: Address width (7 or 10 bits)
-
-        Returns:
-            Complete I2C bus decode configuration
-
         Use cases:
         - Decoding I2C communication
         - Analyzing I2C devices
@@ -5035,21 +4625,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Configure SPI bus decode.
 
         Sets up SPI bus decoding with clock, data lines, and protocol parameters.
-
-        Args:
-            bus_number: Bus number (1-4)
-            sclk_channel: Clock channel
-            clock_polarity: Clock polarity
-            data_bits: Data width (4, 8, 16, 24, 32)
-            bit_order: Bit endianness
-            spi_mode: SPI mode
-            timeout: Frame timeout in seconds
-            miso_channel: MISO channel (optional)
-            mosi_channel: MOSI channel (optional)
-            ss_channel: Slave select channel (optional)
-
-        Returns:
-            Complete SPI bus decode configuration
 
         Use cases:
         - Decoding SPI communication
@@ -5155,16 +4730,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Sets up CAN bus decoding with signal source, baud rate, and sample point.
 
-        Args:
-            bus_number: Bus number (1-4)
-            source_channel: Source channel
-            signal_type: Signal type (RX, TX, DIFF)
-            baud_rate: CAN baud rate
-            sample_point: Sample point percentage (5-95%)
-
-        Returns:
-            Complete CAN bus decode configuration
-
         Use cases:
         - Decoding CAN communication
         - Analyzing automotive networks
@@ -5223,15 +4788,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Sets up LIN bus decoding with source channel, parity mode, and LIN version.
 
-        Args:
-            bus_number: Bus number (1-4)
-            source_channel: Source channel
-            parity: Parity mode (enhanced or classic)
-            standard: LIN version
-
-        Returns:
-            Complete LIN bus decode configuration
-
         Use cases:
         - Decoding LIN communication
         - Analyzing automotive LIN networks
@@ -5280,13 +4836,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Enable or disable bus decode display on screen.
 
         Controls whether the decoded bus data is displayed on the oscilloscope screen.
-
-        Args:
-            bus_number: Bus number (1-4)
-            enabled: Boolean to show/hide decode
-
-        Returns:
-            Bus display status
         """
         # Set bus display
         display_cmd = "ON" if enabled else "OFF"
@@ -5315,13 +4864,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Controls how decoded bus data is formatted on the screen (hexadecimal,
         decimal, binary, or ASCII).
-
-        Args:
-            bus_number: Bus number (1-4)
-            format: Display format ("HEX", "DEC", "BIN", "ASCII")
-
-        Returns:
-            Current bus format
         """
         # Set bus format
         format_scpi = BusFormat[format].value
@@ -5346,12 +4888,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Retrieve decoded bus data from screen.
 
         Returns the currently decoded bus data as displayed on the oscilloscope.
-
-        Args:
-            bus_number: Bus number (1-4)
-
-        Returns:
-            Decoded bus data string
         """
         # Query decoded bus data
         decoded_data = scope.instrument.query(f":BUS{bus_number}:DATA?").strip()  # type: ignore[reportAttributeAccessIssue]
@@ -5373,13 +4909,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Exports the decoded data from the protocol analyzer to a CSV file containing
         timestamps, decoded values, and protocol-specific fields.
-
-        Args:
-            bus_number: Bus number (1-4)
-            local_filepath: Local path to save CSV file
-
-        Returns:
-            Dictionary with file path and number of bytes downloaded
 
         Note:
         - CSV contains timestamp, decoded values, and protocol-specific fields
@@ -5429,12 +4958,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> MemoryDepthResult:
         """
         Set acquisition memory depth.
-
-        Args:
-            memory_depth: Memory depth
-
-        Returns:
-            Memory depth setting
         """
         scope.instrument.write(f":ACQ:MDEP {memory_depth.value}")  # type: ignore[reportAttributeAccessIssue]
 
@@ -5460,12 +4983,6 @@ def create_server(temp_dir: str) -> FastMCP:
     ) -> AcquisitionTypeResult:
         """
         Set acquisition type.
-
-        Args:
-            acquisition_type: Acquisition type
-
-        Returns:
-            Acquisition type setting
         """
         # Map enum to SCPI format
         type_map = {
@@ -5491,12 +5008,6 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set number of averages when acquisition type is AVERAGE.
 
-        Args:
-            averages: Number of averages (2-65536, power of 2 recommended)
-
-        Returns:
-            Current averages count
-
         Note: Only applies when acquisition type is set to AVERAGE. Use with set_acquisition_type("AVERAGE").
         """
         scope.instrument.write(f":ACQ:AVER {averages}")  # type: ignore[reportAttributeAccessIssue]
@@ -5520,16 +5031,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Configure Ultra Acquisition mode for high-speed waveform capture.
 
         Ultra Acquisition mode captures waveforms at maximum speed for anomaly detection.
-
-        Args:
-            mode: Ultra mode ("EDGE" or "PULSE")
-            timeout: Timeout duration in seconds
-            max_frames: Maximum frames to capture
-
-        Returns:
-            Complete Ultra Acquisition configuration
-
-        Note: Ultra Acquisition mode captures waveforms at maximum speed for anomaly detection.
         """
         # Set acquisition type to Ultra
         scope.instrument.write(":ACQ:TYPE ULTRa")  # type: ignore[reportAttributeAccessIssue]
@@ -5563,9 +5064,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def get_sample_rate() -> SampleRateResult:
         """
         Get current sample rate.
-
-        Returns:
-            Sample rate information
         """
         sample_rate = float(scope.instrument.query(":ACQ:SRAT?"))  # type: ignore[reportAttributeAccessIssue]
 
@@ -5593,9 +5091,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Automatically configures vertical scale, horizontal scale, and trigger
         settings for optimal display of the input signal.
-
-        Returns:
-            Action confirmation
         """
         scope.instrument.write(":AUT")  # type: ignore[reportAttributeAccessIssue]
 
@@ -5609,9 +5104,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def clear_display() -> ActionResult:
         """
         Clear the oscilloscope display.
-
-        Returns:
-            Action confirmation
         """
         scope.instrument.write(":CLE")  # type: ignore[reportAttributeAccessIssue]
 
@@ -5625,9 +5117,6 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Saves a PNG image of the current oscilloscope screen display to a temporary file,
         including waveforms, measurements, and all visible UI elements.
-
-        Returns:
-            Screenshot file path
         """
         # Set image format to PNG
         scope.instrument.write(":SAVE:IMAGe:FORMat PNG")  # type: ignore[reportAttributeAccessIssue]
@@ -5680,17 +5169,6 @@ def create_server(temp_dir: str) -> FastMCP:
         main acquisition system. Once enabled, it continuously measures even
         when the scope is stopped. Measurements work even if the channel is
         not enabled on the display.
-
-        Args:
-            channel: Channel number (1-4), optional
-            mode: Measurement mode, optional. One of:
-                - 'AC_RMS': RMS value with DC component removed
-                - 'DC': Average (DC) value
-                - 'AC+DC_RMS': True RMS including both AC and DC components
-            enabled: Enable/disable DVM, optional
-
-        Returns:
-            Dictionary with complete DVM status after applying changes
         """
         # Apply changes in order: channel, mode, enabled
         if channel is not None:
@@ -5748,9 +5226,6 @@ def create_server(temp_dir: str) -> FastMCP:
         Returns all DVM settings including enable status, source channel,
         measurement mode, mode description, and current voltage reading
         (if DVM is enabled).
-
-        Returns:
-            Dictionary with complete DVM status and current reading
         """
         # Query all DVM settings
         is_enabled = scope.dvm_is_enabled()
@@ -5796,16 +5271,6 @@ def create_server(temp_dir: str) -> FastMCP:
         - High-accuracy frequency measurement (6-digit precision)
         - Period measurement for low-frequency signals
         - Edge counting for event totalization
-
-        Args:
-            enabled: Boolean to enable counter
-            channel: Source channel (1-4)
-            mode: Measurement mode ("FREQUENCY", "PERIOD", "TOTALIZE")
-            digits: Resolution (5 or 6 digits)
-            totalize_enabled: Enable statistics (only for FREQUENCY/PERIOD modes)
-
-        Returns:
-            Dictionary with complete counter configuration and current reading
 
         Note: Counter must be enabled first. Units depend on mode (Hz for frequency, seconds for period, count for totalize).
         """
@@ -5873,9 +5338,6 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Get current hardware counter reading.
 
-        Returns:
-            Dictionary with value and unit
-
         Note: Counter must be enabled first. Units depend on mode (Hz for frequency, seconds for period, count for totalize).
         """
         # Get current mode to determine unit
@@ -5897,9 +5359,6 @@ def create_server(temp_dir: str) -> FastMCP:
     async def reset_counter_totalize() -> CounterTotalizeResetResult:
         """
         Clear/reset the totalize counter and statistics.
-
-        Returns:
-            Action confirmation
 
         Note: Only applies when counter is in statistics mode (totalize enabled).
         """
