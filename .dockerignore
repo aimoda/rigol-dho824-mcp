@@ -55,6 +55,6 @@ docker-compose.yml
 
 # Other
 *.md
-!CLAUDE.md
+!README.md
 LICENSE
 .mcp.json*
