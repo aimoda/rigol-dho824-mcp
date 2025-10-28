@@ -5543,6 +5543,10 @@ def create_server(temp_dir: str) -> FastMCP:
         # Set image format to PNG
         scope._write_checked(":SAVE:IMAGe:FORMat PNG")
 
+        # Wait for operations to complete and on-screen messages to clear
+        scope._query_checked("*OPC?")
+        await asyncio.sleep(3.5)
+
         # Query the image data
         # Response format: TMC header + binary PNG data + terminator
         png_data = cast(
