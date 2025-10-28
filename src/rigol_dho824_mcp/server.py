@@ -1816,13 +1816,13 @@ def create_server(temp_dir: str) -> FastMCP:
                     raise Exception(
                         "Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
                     )
+                # Clear any leftover errors from previous operations
+                scope._write_checked("*CLS")
+
                 # Lock panel and optionally enable beeper during remote operation
                 scope._write_checked(":SYSTem:LOCKed ON")
                 if beeper_enabled:
                     scope._write_checked(":SYSTem:BEEPer ON")
-
-                # Clear any leftover errors from previous operations
-                scope._write_checked("*CLS")
 
                 try:
                     result = await func(*args, **kwargs)
