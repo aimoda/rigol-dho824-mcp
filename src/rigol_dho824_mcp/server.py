@@ -303,11 +303,14 @@ class DVMMode(str, Enum):
         return descriptions[self]
 
 
-class UltraAcquisitionMode(str, Enum):
-    """Ultra Acquisition modes for high-speed waveform capture."""
+class UltraDisplayMode(str, Enum):
+    """Display modes for Ultra Acquisition waveform segments."""
 
-    EDGE = "EDGE"  # Edge mode - triggers on edges
-    PULSE = "PULSe"  # Pulse mode - triggers on pulses
+    ADJACENT = "ADJacent"  # Segments shown side-by-side in time order
+    OVERLAY = "OVERlay"  # All segments overlapped as one waveform
+    WATERFALL = "WATerfall"  # Segments in cascaded waterfall display
+    PERSPECTIVE = "PERSpective"  # Segments in ladder-like perspective view
+    MOSAIC = "MOSaic"  # Segments in grid/mosaic layout
 
 
 class TimebaseMode(str, Enum):
@@ -742,7 +745,7 @@ class AcquisitionAveragesResult(TypedDict):
 class UltraAcquisitionResult(TypedDict):
     """Result for Ultra Acquisition configuration."""
 
-    mode: Annotated[UltraAcquisitionMode, Field(description="Ultra mode (EDGE or PULSE)")]
+    display_mode: Annotated[UltraDisplayMode, Field(description="Display mode for waveform segments")]
     timeout: UltraTimeoutField
     max_frames: MaxFramesField
     message: Annotated[str, Field(description="Configuration summary")]
@@ -1397,23 +1400,31 @@ class RigolDHO824:
         assert self.instrument is not None, "Instrument not connected"
         return self.instrument
 
-    def _write_checked(self, command: str) -> None:
+    def _write_checked(self, command: str, raise_on_error: bool = True) -> Optional[str]:
         """
         Write SCPI command and check for errors immediately.
 
         Sends the command, then queries the error queue. If an error is detected,
-        raises an exception with the error details.
+        either raises an exception or returns the error string based on raise_on_error.
 
         Args:
             command: SCPI command to send
+            raise_on_error: If True, raise exception on error. If False, return error string.
+
+        Returns:
+            None if no error, or error string if raise_on_error=False and error occurred
 
         Raises:
-            Exception: If SCPI error is detected after command execution
+            Exception: If SCPI error is detected and raise_on_error is True
         """
         self._instr.write(command)
         error_response = self._instr.query(":SYSTem:ERRor?").strip()
         if error_response != '0,"No error"':
-            raise Exception(f"SCPI error after '{command}': {error_response}")
+            if raise_on_error:
+                raise Exception(f"SCPI error after '{command}': {error_response}")
+            else:
+                return error_response
+        return None
 
     def _query_checked(self, command: str) -> str:
         """
@@ -1461,6 +1472,44 @@ class RigolDHO824:
         if error_response != '0,"No error"':
             raise Exception(f"SCPI error after '{command}': {error_response}")
         return response  # type: ignore[return-value]
+
+    def _disable_ultra_conflicting_features(self) -> None:
+        """
+        Disable features that conflict with Ultra Acquisition mode.
+
+        Ultra Acquisition requires these features to be disabled:
+        - Cursor measurement
+        - Protocol decoding (all buses)
+        - Search function
+        - Zoom (delayed sweep)
+        - Pass/Fail test
+        - Waveform recording
+        - Roll/XY timebase modes (must be MAIN)
+
+        Note: Uses best-effort approach - errors are ignored if features are
+        already disabled or unavailable.
+        """
+        # Disable cursor
+        self._write_checked(":CURSor:MODE OFF", raise_on_error=False)
+
+        # Disable all decoding buses (BUS1-4)
+        for bus in range(1, 5):
+            self._write_checked(f":BUS{bus}:DISPlay 0", raise_on_error=False)
+
+        # Disable search
+        self._write_checked(":SEARch:STATe 0", raise_on_error=False)
+
+        # Disable zoom (delayed sweep)
+        self._write_checked(":TIMebase:DELay:ENABle 0", raise_on_error=False)
+
+        # Disable pass/fail test
+        self._write_checked(":MASK:ENABle 0", raise_on_error=False)
+
+        # Disable waveform recording
+        self._write_checked(":RECord:WRECord:ENABle 0", raise_on_error=False)
+
+        # Set timebase to MAIN (not ROLL or XY)
+        self._write_checked(":TIMebase:MODE MAIN", raise_on_error=False)
 
     def connect(self) -> bool:
         """
@@ -5385,7 +5434,7 @@ def create_server(temp_dir: str) -> FastMCP:
     @mcp.tool
     @with_scope_connection
     async def configure_ultra_acquisition(
-        mode: Annotated[UltraAcquisitionMode, Field(description="Ultra mode (EDGE or PULSE)")],
+        display_mode: Annotated[UltraDisplayMode, Field(description="Display mode for waveform segments")],
         timeout: UltraTimeoutField,
         max_frames: MaxFramesField
     ) -> UltraAcquisitionResult:
@@ -5393,12 +5442,16 @@ def create_server(temp_dir: str) -> FastMCP:
         Configure Ultra Acquisition mode for high-speed waveform capture.
 
         Ultra Acquisition mode captures waveforms at maximum speed for anomaly detection.
+        Automatically disables conflicting features (cursor, search, zoom, etc.) before enabling.
         """
+        # Disable conflicting features first
+        scope._disable_ultra_conflicting_features()
+
         # Set acquisition type to Ultra
         scope._write_checked(":ACQ:TYPE ULTRa")
 
-        # Set Ultra mode
-        scope._write_checked(f":ACQ:ULTR:MODE {mode.value}")
+        # Set Ultra display mode
+        scope._write_checked(f":ACQ:ULTR:MODE {display_mode.value}")
 
         # Set timeout
         scope._write_checked(f":ACQ:ULTR:TIM {timeout}")
@@ -5412,13 +5465,20 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_max_frames = int(scope._query_checked(":ACQ:ULTR:FMAX?"))
 
         # Map SCPI response to enum
-        actual_mode = UltraAcquisitionMode.EDGE if actual_mode_str == "EDGE" else UltraAcquisitionMode.PULSE
+        mode_map = {
+            "ADJ": UltraDisplayMode.ADJACENT,
+            "OVER": UltraDisplayMode.OVERLAY,
+            "WAT": UltraDisplayMode.WATERFALL,
+            "PERS": UltraDisplayMode.PERSPECTIVE,
+            "MOS": UltraDisplayMode.MOSAIC,
+        }
+        actual_mode = mode_map.get(actual_mode_str, display_mode)
 
         return UltraAcquisitionResult(
-            mode=actual_mode,
+            display_mode=actual_mode,
             timeout=actual_timeout,
             max_frames=actual_max_frames,
-            message=f"Ultra Acquisition configured: {actual_mode.value} mode, {actual_timeout}s timeout, {actual_max_frames} max frames"
+            message=f"Ultra Acquisition configured: {actual_mode.value} display, {actual_timeout}s timeout, {actual_max_frames} max frames"
         )
 
     @mcp.tool
