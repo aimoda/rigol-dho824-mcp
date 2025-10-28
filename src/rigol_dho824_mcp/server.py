@@ -2163,23 +2163,26 @@ def create_server(temp_dir: str) -> FastMCP:
                     )
 
                     # Create waveform data structure
+                    # Fields ordered logically: identification, status, acquisition metadata,
+                    # Y-axis scaling, X-axis scaling, data size and content (raw_data always last)
                     waveform_data = {
                         "channel": channel,
                         "truncated": truncated,
+                        "sample_rate": sample_rate,
                         "y_increment": y_increment,
                         "y_origin": y_origin,
                         "y_reference": y_reference,
-                        "x_increment": x_increment,
-                        "x_origin": x_origin,
                         "vertical_scale": vertical_scale,
                         "vertical_offset": vertical_offset,
                         "probe_ratio": probe_ratio,
-                        "sample_rate": sample_rate,
+                        "x_increment": x_increment,
+                        "x_origin": x_origin,
                         "points": len(raw_data),
-                        "raw_data": raw_data,  # List of raw ADC values
                     }
                     if frame is not None:
                         waveform_data["frame_number"] = frame
+                    # Always put raw_data last so tools like 'head' show metadata first
+                    waveform_data["raw_data"] = raw_data  # List of raw ADC values
 
                     # Save waveform data to JSON file in capture directory
                     # Include frame number in filename if exporting frames
@@ -2192,18 +2195,19 @@ def create_server(temp_dir: str) -> FastMCP:
                         json.dump(waveform_data, f, indent=2)
 
                     # Return metadata with file path
+                    # Fields ordered to match waveform_data structure
                     result_data: WaveformChannelData = {
                         "channel": channel,
                         "truncated": truncated,
+                        "sample_rate": sample_rate,
                         "y_increment": y_increment,
                         "y_origin": y_origin,
                         "y_reference": y_reference,
-                        "x_increment": x_increment,
-                        "x_origin": x_origin,
                         "vertical_scale": vertical_scale,
                         "vertical_offset": vertical_offset,
                         "probe_ratio": probe_ratio,
-                        "sample_rate": sample_rate,
+                        "x_increment": x_increment,
+                        "x_origin": x_origin,
                         "points": len(raw_data),
                         "file_path": file_path,
                     }
