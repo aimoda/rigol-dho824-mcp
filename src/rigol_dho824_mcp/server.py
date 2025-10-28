@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 from enum import Enum
 from ftplib import FTP
-from typing import Optional, TypedDict, Annotated, List, Literal, cast
+from typing import Optional, TypedDict, Annotated, List, Literal, cast, Union, Sequence
 from typing_extensions import NotRequired
 import numpy as np
 from pydantic import Field
@@ -1397,6 +1397,71 @@ class RigolDHO824:
         assert self.instrument is not None, "Instrument not connected"
         return self.instrument
 
+    def _write_checked(self, command: str) -> None:
+        """
+        Write SCPI command and check for errors immediately.
+
+        Sends the command, then queries the error queue. If an error is detected,
+        raises an exception with the error details.
+
+        Args:
+            command: SCPI command to send
+
+        Raises:
+            Exception: If SCPI error is detected after command execution
+        """
+        self._instr.write(command)
+        error_response = self._instr.query(":SYSTem:ERRor?").strip()
+        if error_response != '0,"No error"':
+            raise Exception(f"SCPI error after '{command}': {error_response}")
+
+    def _query_checked(self, command: str) -> str:
+        """
+        Query SCPI command and check for errors immediately.
+
+        Sends the query, gets the response, then checks the error queue. If an error
+        is detected, raises an exception with the error details.
+
+        Args:
+            command: SCPI query command to send
+
+        Returns:
+            Response string from the oscilloscope
+
+        Raises:
+            Exception: If SCPI error is detected after command execution
+        """
+        response = self._instr.query(command)
+        error_response = self._instr.query(":SYSTem:ERRor?").strip()
+        if error_response != '0,"No error"':
+            raise Exception(f"SCPI error after '{command}': {error_response}")
+        return response
+
+    def _query_binary_values_checked(
+        self, command: str, **kwargs
+    ) -> Union[Sequence[Union[int, float]], bytes]:
+        """
+        Query binary values and check for errors immediately.
+
+        Sends the binary query, gets the data, then checks the error queue. If an error
+        is detected, raises an exception with the error details.
+
+        Args:
+            command: SCPI binary query command to send
+            **kwargs: Additional arguments passed to query_binary_values (datatype, container, etc.)
+
+        Returns:
+            Binary data from the oscilloscope (sequence of numbers or bytes depending on container)
+
+        Raises:
+            Exception: If SCPI error is detected after command execution
+        """
+        response = self._instr.query_binary_values(command, **kwargs)
+        error_response = self._instr.query(":SYSTem:ERRor?").strip()
+        if error_response != '0,"No error"':
+            raise Exception(f"SCPI error after '{command}': {error_response}")
+        return response  # type: ignore[return-value]
+
     def connect(self) -> bool:
         """
         Connect to the oscilloscope.
@@ -1706,55 +1771,32 @@ def create_server(temp_dir: str) -> FastMCP:
         async def wrapper(*args, **kwargs):
             async with scope.lock:
                 if not scope.connect():
-                    # Build detailed error message with diagnostic information
-                    error_parts = ["Failed to connect to oscilloscope."]
-
-                    if scope.last_connection_error:
-                        error_parts.append(f"\nError: {scope.last_connection_error}")
-
-                    # Include environment variable info
-                    rigol_resource = os.getenv("RIGOL_RESOURCE", "")
-                    if rigol_resource:
-                        error_parts.append(f"\nRIGOL_RESOURCE is set to: {rigol_resource}")
-                    else:
-                        error_parts.append("\nRIGOL_RESOURCE environment variable is not set (attempting auto-discovery).")
-
-                    error_parts.append("\n\nTroubleshooting:")
-                    error_parts.append("  - Verify the oscilloscope is powered on and connected")
-                    error_parts.append("  - Check USB/network connection")
-                    error_parts.append("  - Ensure no other application is using the device")
-                    if not rigol_resource:
-                        error_parts.append("  - Set RIGOL_RESOURCE environment variable to the device's VISA resource string")
-
-                    raise Exception("".join(error_parts))
+                    raise Exception(
+                        "Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
+                    )
                 # Lock panel and optionally enable beeper during remote operation
-                scope._instr.write(":SYSTem:LOCKed ON")
+                scope._write_checked(":SYSTem:LOCKed ON")
                 if beeper_enabled:
-                    scope._instr.write(":SYSTem:BEEPer ON")
+                    scope._write_checked(":SYSTem:BEEPer ON")
+
+                # Clear any leftover errors from previous operations
+                scope._write_checked("*CLS")
+
                 try:
                     result = await func(*args, **kwargs)
-
-                    # Check for SCPI errors after user function completes
-                    errors = []
-                    for i in range(100):
-                        error_response = scope._instr.query(":SYSTem:ERRor?").strip()
-                        if error_response == '0,"No error"':
-                            break
-                        errors.append(error_response)
-                    else:
-                        # Hit 100 iterations without clearing error queue
-                        raise Exception(f"SCPI error queue did not clear after 100 iterations. Errors: {'; '.join(errors)}")
-
-                    # Raise if any errors were collected
-                    if errors:
-                        raise Exception(f"SCPI errors detected: {'; '.join(errors)}")
-
                     return result
                 finally:
                     # Restore panel control and disable beeper before disconnect
+                    # Use _instr directly to avoid masking errors from the main function
                     if beeper_enabled:
-                        scope._instr.write(":SYSTem:BEEPer OFF")
-                    scope._instr.write(":SYSTem:LOCKed OFF")
+                        try:
+                            scope._instr.write(":SYSTem:BEEPer OFF")
+                        except Exception:
+                            pass  # Best effort cleanup
+                    try:
+                        scope._instr.write(":SYSTem:LOCKed OFF")
+                    except Exception:
+                        pass  # Best effort cleanup
                     scope.disconnect()
 
         return wrapper
@@ -1938,15 +1980,15 @@ def create_server(temp_dir: str) -> FastMCP:
         # If frame export requested, detect which system is active and validate
         if frame_mode_active:
             # Stop acquisition first - required for frame navigation
-            scope._instr.write(":STOP")
-            scope._instr.query("*OPC?")
+            scope._write_checked(":STOP")
+            scope._query_checked("*OPC?")
 
             # Initialize max_available_frames
             max_available_frames = 0
 
             # Check Waveform Recording mode
             try:
-                record_max_frames = int(scope._instr.query(":RECord:WREPlay:FMAX?"))
+                record_max_frames = int(scope._query_checked(":RECord:WREPlay:FMAX?"))
                 if record_max_frames > 0:
                     frame_system = "record"
                     max_available_frames = record_max_frames
@@ -1957,7 +1999,7 @@ def create_server(temp_dir: str) -> FastMCP:
             if frame_system == "":
                 try:
                     # Try to query Ultra frame end - this will work if Ultra mode has captured frames
-                    ultra_end_frame = int(scope._instr.query(":NAVigate:FRAMe:END:FRAMe?"))
+                    ultra_end_frame = int(scope._query_checked(":NAVigate:FRAMe:END:FRAMe?"))
                     if ultra_end_frame > 0:
                         frame_system = "ultra"
                         max_available_frames = ultra_end_frame
@@ -1994,8 +2036,8 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # If not in frame export mode, stop acquisition once for all channels
         if not frame_mode_active:
-            scope._instr.write(":STOP")
-            scope._instr.query("*OPC?")  # Wait for stop to complete
+            scope._write_checked(":STOP")
+            scope._query_checked("*OPC?")  # Wait for stop to complete
 
         # Build iteration list: frames if exporting frames, otherwise single None value
         frames_iteration = frames_to_export if frame_mode_active else [None]
@@ -2007,11 +2049,11 @@ def create_server(temp_dir: str) -> FastMCP:
             if frame is not None:
                 if frame_system == "record":
                     # Waveform Recording mode navigation
-                    scope._instr.write(f":RECord:WREPlay:FCURrent {frame}")
+                    scope._write_checked(f":RECord:WREPlay:FCURrent {frame}")
                 elif frame_system == "ultra":
                     # Ultra Acquisition mode navigation
-                    scope._instr.write(":NAVigate:MODE FRAMe")
-                    scope._instr.write(f":NAVigate:FRAMe:STARt:FRAMe {frame}")
+                    scope._write_checked(":NAVigate:MODE FRAMe")
+                    scope._write_checked(f":NAVigate:FRAMe:STARt:FRAMe {frame}")
 
                 await ctx.report_progress(
                     progress=current_iteration / total_iterations,
@@ -2021,7 +2063,7 @@ def create_server(temp_dir: str) -> FastMCP:
             for channel_idx, channel in enumerate(channels):
                 current_iteration += 1
                 # Check if channel is enabled
-                channel_enabled = int(scope._instr.query(f":CHAN{channel}:DISP?"))
+                channel_enabled = int(scope._query_checked(f":CHAN{channel}:DISP?"))
                 if not channel_enabled:
                     await ctx.report_progress(
                         progress=current_iteration / total_iterations,
@@ -2031,14 +2073,14 @@ def create_server(temp_dir: str) -> FastMCP:
 
                 try:
                     # Set source channel
-                    scope._instr.write(f":WAV:SOUR CHAN{channel}")
+                    scope._write_checked(f":WAV:SOUR CHAN{channel}")
 
                     # Configure for RAW mode with WORD format (16-bit)
-                    scope._instr.write(":WAV:MODE RAW")
-                    scope._instr.write(":WAV:FORM WORD")
+                    scope._write_checked(":WAV:MODE RAW")
+                    scope._write_checked(":WAV:FORM WORD")
 
                     # Query memory depth to determine available points
-                    memory_depth = float(scope._instr.query(":ACQ:MDEP?"))
+                    memory_depth = float(scope._query_checked(":ACQ:MDEP?"))
                     max_points = int(memory_depth)
 
                     # Adjust timeout based on memory depth
@@ -2048,19 +2090,19 @@ def create_server(temp_dir: str) -> FastMCP:
                         scope._instr.timeout = new_timeout
 
                     # Query waveform parameters for conversion (before data transfer)
-                    y_increment = float(scope._instr.query(":WAV:YINC?"))
-                    y_origin = float(scope._instr.query(":WAV:YOR?"))
-                    y_reference = float(scope._instr.query(":WAV:YREF?"))
-                    x_increment = float(scope._instr.query(":WAV:XINC?"))
-                    x_origin = float(scope._instr.query(":WAV:XOR?"))
+                    y_increment = float(scope._query_checked(":WAV:YINC?"))
+                    y_origin = float(scope._query_checked(":WAV:YOR?"))
+                    y_reference = float(scope._query_checked(":WAV:YREF?"))
+                    x_increment = float(scope._query_checked(":WAV:XINC?"))
+                    x_origin = float(scope._query_checked(":WAV:XOR?"))
 
                     # Query channel settings
-                    vertical_scale = float(scope._instr.query(f":CHAN{channel}:SCAL?"))
-                    vertical_offset = float(scope._instr.query(f":CHAN{channel}:OFFS?"))
-                    probe_ratio = float(scope._instr.query(f":CHAN{channel}:PROB?"))
+                    vertical_scale = float(scope._query_checked(f":CHAN{channel}:SCAL?"))
+                    vertical_offset = float(scope._query_checked(f":CHAN{channel}:OFFS?"))
+                    probe_ratio = float(scope._query_checked(f":CHAN{channel}:PROB?"))
 
                     # Query sample rate
-                    sample_rate = float(scope._instr.query(":ACQ:SRAT?"))
+                    sample_rate = float(scope._query_checked(":ACQ:SRAT?"))
 
                     # Chunked reading for large data
                     chunk_size = 10000  # 10k points per chunk
@@ -2084,11 +2126,11 @@ def create_server(temp_dir: str) -> FastMCP:
                             )
 
                             # Set chunk range
-                            scope._instr.write(f":WAV:STAR {start}")
-                            scope._instr.write(f":WAV:STOP {end}")
+                            scope._write_checked(f":WAV:STAR {start}")
+                            scope._write_checked(f":WAV:STOP {end}")
 
                             # Read chunk
-                            chunk_data = scope._instr.query_binary_values(
+                            chunk_data = scope._query_binary_values_checked(
                                 ":WAV:DATA?",
                                 datatype="H",  # Unsigned 16-bit
                                 is_big_endian=False,
@@ -2102,10 +2144,10 @@ def create_server(temp_dir: str) -> FastMCP:
                             message=f"{frame_info}Channel {channel}: Reading {max_points:,} points",
                         )
 
-                        scope._instr.write(":WAV:STAR 1")
-                        scope._instr.write(f":WAV:STOP {max_points}")
+                        scope._write_checked(":WAV:STAR 1")
+                        scope._write_checked(f":WAV:STOP {max_points}")
 
-                        raw_data = scope._instr.query_binary_values(
+                        raw_data = scope._query_binary_values_checked(
                             ":WAV:DATA?",
                             datatype="H",  # Unsigned 16-bit
                             is_big_endian=False,
@@ -2195,14 +2237,14 @@ def create_server(temp_dir: str) -> FastMCP:
                 )
 
                 # Enable file overwriting
-                scope._instr.write(":SAVE:OVER ON")
+                scope._write_checked(":SAVE:OVER ON")
 
                 # Save memory waveform to scope
-                scope._instr.write(f":SAVE:MEMory:WAVeform {wfm_scope_path}")
+                scope._write_checked(f":SAVE:MEMory:WAVeform {wfm_scope_path}")
                 time.sleep(5)  # Wait for save to complete
 
                 # Check save status
-                scope._instr.query(":SAVE:STATus?")
+                scope._query_checked(":SAVE:STATus?")
 
                 # Try to download via FTP
                 ip_address = scope.extract_ip_from_resource()
@@ -2246,10 +2288,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Enable or disable a channel display.
         """
         state = "ON" if enabled else "OFF"
-        scope._instr.write(f":CHAN{channel}:DISP {state}")
+        scope._write_checked(f":CHAN{channel}:DISP {state}")
 
         # Verify the setting
-        actual_state = int(scope._instr.query(f":CHAN{channel}:DISP?"))
+        actual_state = int(scope._query_checked(f":CHAN{channel}:DISP?"))
 
         return ChannelEnableResult(channel=channel, enabled=bool(actual_state))
 
@@ -2265,10 +2307,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Set channel coupling mode.
         """
         # Use enum value directly
-        scope._instr.write(f":CHAN{channel}:COUP {coupling}")
+        scope._write_checked(f":CHAN{channel}:COUP {coupling}")
 
         # Verify the setting
-        actual_coupling = scope._instr.query(f":CHAN{channel}:COUP?").strip()
+        actual_coupling = scope._query_checked(f":CHAN{channel}:COUP?").strip()
 
         return ChannelCouplingResult(
             channel=channel, coupling=map_coupling_mode(actual_coupling)
@@ -2286,10 +2328,10 @@ def create_server(temp_dir: str) -> FastMCP:
         probe_value = (
             int(probe_ratio) if float(probe_ratio).is_integer() else float(probe_ratio)
         )
-        scope._instr.write(f":CHAN{channel}:PROB {probe_value}")
+        scope._write_checked(f":CHAN{channel}:PROB {probe_value}")
 
         # Verify the setting
-        actual_ratio = float(scope._instr.query(f":CHAN{channel}:PROB?"))
+        actual_ratio = float(scope._query_checked(f":CHAN{channel}:PROB?"))
 
         return ChannelProbeResult(channel=channel, probe_ratio=actual_ratio)
 
@@ -2321,10 +2363,10 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # Map user-friendly value to SCPI
         bw_value = "20M" if bandwidth_limit == "20MHz" else "OFF"
-        scope._instr.write(f":CHAN{channel}:BWL {bw_value}")
+        scope._write_checked(f":CHAN{channel}:BWL {bw_value}")
 
         # Verify the setting
-        actual_bw = scope._instr.query(f":CHAN{channel}:BWL?").strip()
+        actual_bw = scope._query_checked(f":CHAN{channel}:BWL?").strip()
 
         # Map response to enum
         result_bw = "20MHz" if actual_bw == "20M" else "OFF"
@@ -2338,14 +2380,14 @@ def create_server(temp_dir: str) -> FastMCP:
         Get comprehensive channel status and settings.
         """
         # Query all channel settings
-        enabled = bool(int(scope._instr.query(f":CHAN{channel}:DISP?")))
-        coupling = scope._instr.query(f":CHAN{channel}:COUP?").strip()
-        probe_ratio = float(scope._instr.query(f":CHAN{channel}:PROB?"))
-        bw_limit = scope._instr.query(f":CHAN{channel}:BWL?").strip()
-        vertical_scale = float(scope._instr.query(f":CHAN{channel}:SCAL?"))
-        vertical_offset = float(scope._instr.query(f":CHAN{channel}:OFFS?"))
-        invert = bool(int(scope._instr.query(f":CHAN{channel}:INV?")))
-        units = scope._instr.query(f":CHAN{channel}:UNIT?").strip()
+        enabled = bool(int(scope._query_checked(f":CHAN{channel}:DISP?")))
+        coupling = scope._query_checked(f":CHAN{channel}:COUP?").strip()
+        probe_ratio = float(scope._query_checked(f":CHAN{channel}:PROB?"))
+        bw_limit = scope._query_checked(f":CHAN{channel}:BWL?").strip()
+        vertical_scale = float(scope._query_checked(f":CHAN{channel}:SCAL?"))
+        vertical_offset = float(scope._query_checked(f":CHAN{channel}:OFFS?"))
+        invert = bool(int(scope._query_checked(f":CHAN{channel}:INV?")))
+        units = scope._query_checked(f":CHAN{channel}:UNIT?").strip()
 
         # Map bandwidth limit
         bandwidth_limit = "20MHz" if bw_limit == "20M" else "OFF"
@@ -2373,10 +2415,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Invert channel waveform display (multiply by -1).
         """
-        scope._instr.write(f":CHAN{channel}:INV {'ON' if inverted else 'OFF'}")
+        scope._write_checked(f":CHAN{channel}:INV {'ON' if inverted else 'OFF'}")
 
         # Verify the setting
-        actual_invert = bool(int(scope._instr.query(f":CHAN{channel}:INV?")))
+        actual_invert = bool(int(scope._query_checked(f":CHAN{channel}:INV?")))
 
         return ChannelInvertResult(channel=channel, inverted=actual_invert)
 
@@ -2389,10 +2431,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set custom channel label text.
         """
-        scope._instr.write(f':CHAN{channel}:LAB:CONT "{label}"')
+        scope._write_checked(f':CHAN{channel}:LAB:CONT "{label}"')
 
         # Verify the setting
-        actual_label = scope._instr.query(f":CHAN{channel}:LAB:CONT?").strip().strip('"')
+        actual_label = scope._query_checked(f":CHAN{channel}:LAB:CONT?").strip().strip('"')
 
         return ChannelLabelResult(channel=channel, label=actual_label)
 
@@ -2405,10 +2447,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Show or hide custom channel label.
         """
-        scope._instr.write(f":CHAN{channel}:LAB:SHOW {'ON' if visible else 'OFF'}")
+        scope._write_checked(f":CHAN{channel}:LAB:SHOW {'ON' if visible else 'OFF'}")
 
         # Verify the setting
-        actual_visible = bool(int(scope._instr.query(f":CHAN{channel}:LAB:SHOW?")))
+        actual_visible = bool(int(scope._query_checked(f":CHAN{channel}:LAB:SHOW?")))
 
         return ChannelLabelVisibilityResult(channel=channel, visible=actual_visible)
 
@@ -2421,10 +2463,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set voltage display units for channel.
         """
-        scope._instr.write(f":CHAN{channel}:UNIT {units.value}")
+        scope._write_checked(f":CHAN{channel}:UNIT {units.value}")
 
         # Verify the setting
-        actual_units_str = scope._instr.query(f":CHAN{channel}:UNIT?").strip()
+        actual_units_str = scope._query_checked(f":CHAN{channel}:UNIT?").strip()
 
         # Map SCPI response to enum
         units_map = {
@@ -2447,10 +2489,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set channel vertical scale (V/div).
         """
-        scope._instr.write(f":CHAN{channel}:SCAL {vertical_scale}")
+        scope._write_checked(f":CHAN{channel}:SCAL {vertical_scale}")
 
         # Verify the setting
-        actual_scale = float(scope._instr.query(f":CHAN{channel}:SCAL?"))
+        actual_scale = float(scope._query_checked(f":CHAN{channel}:SCAL?"))
 
         return VerticalScaleResult(
             channel=channel, vertical_scale=actual_scale, units="V/div"
@@ -2464,10 +2506,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set channel vertical offset.
         """
-        scope._instr.write(f":CHAN{channel}:OFFS {vertical_offset}")
+        scope._write_checked(f":CHAN{channel}:OFFS {vertical_offset}")
 
         # Verify the setting
-        actual_offset = float(scope._instr.query(f":CHAN{channel}:OFFS?"))
+        actual_offset = float(scope._query_checked(f":CHAN{channel}:OFFS?"))
 
         return VerticalOffsetResult(
             channel=channel, vertical_offset=actual_offset, units="V"
@@ -2483,10 +2525,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set horizontal timebase scale.
         """
-        scope._instr.write(f":TIM:MAIN:SCAL {time_per_div}")
+        scope._write_checked(f":TIM:MAIN:SCAL {time_per_div}")
 
         # Verify the setting
-        actual_scale = float(scope._instr.query(":TIM:MAIN:SCAL?"))
+        actual_scale = float(scope._query_checked(":TIM:MAIN:SCAL?"))
 
         # Convert to human-readable format
         if actual_scale >= 1:
@@ -2508,10 +2550,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set horizontal timebase offset.
         """
-        scope._instr.write(f":TIM:MAIN:OFFS {time_offset}")
+        scope._write_checked(f":TIM:MAIN:OFFS {time_offset}")
 
         # Verify the setting
-        actual_offset = float(scope._instr.query(":TIM:MAIN:OFFS?"))
+        actual_offset = float(scope._query_checked(":TIM:MAIN:OFFS?"))
 
         return TimebaseOffsetResult(time_offset=actual_offset, units="s")
 
@@ -2529,10 +2571,10 @@ def create_server(temp_dir: str) -> FastMCP:
         - **XY**: Lissajous/XY mode (Ch1 = X axis, Ch2 = Y axis)
         - **ROLL**: Slow sweep roll mode (for low frequencies)
         """
-        scope._instr.write(f":TIM:MODE {mode.value}")
+        scope._write_checked(f":TIM:MODE {mode.value}")
 
         # Verify the setting
-        actual_mode_str = scope._instr.query(":TIM:MODE?").strip()
+        actual_mode_str = scope._query_checked(":TIM:MODE?").strip()
 
         # Map SCPI response to enum
         mode_map = {
@@ -2552,10 +2594,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Enable or disable delayed/zoom timebase (zoomed window).
         """
-        scope._instr.write(f":TIM:DEL:ENAB {'ON' if enabled else 'OFF'}")
+        scope._write_checked(f":TIM:DEL:ENAB {'ON' if enabled else 'OFF'}")
 
         # Verify the setting
-        actual_enabled = bool(int(scope._instr.query(":TIM:DEL:ENAB?")))
+        actual_enabled = bool(int(scope._query_checked(":TIM:DEL:ENAB?")))
 
         return DelayedTimebaseEnableResult(enabled=actual_enabled)
 
@@ -2569,10 +2611,10 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Must enable delayed timebase first with enable_delayed_timebase(True).
         """
-        scope._instr.write(f":TIM:DEL:SCAL {time_per_div}")
+        scope._write_checked(f":TIM:DEL:SCAL {time_per_div}")
 
         # Verify the setting
-        actual_scale = float(scope._instr.query(":TIM:DEL:SCAL?"))
+        actual_scale = float(scope._query_checked(":TIM:DEL:SCAL?"))
 
         # Convert to human-readable format
         if actual_scale >= 1:
@@ -2599,10 +2641,10 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Must enable delayed timebase first with enable_delayed_timebase(True).
         """
-        scope._instr.write(f":TIM:DEL:OFFS {time_offset}")
+        scope._write_checked(f":TIM:DEL:OFFS {time_offset}")
 
         # Verify the setting
-        actual_offset = float(scope._instr.query(":TIM:DEL:OFFS?"))
+        actual_offset = float(scope._query_checked(":TIM:DEL:OFFS?"))
 
         return DelayedTimebaseOffsetResult(time_offset=actual_offset, units="s")
 
@@ -2614,13 +2656,13 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Start continuous acquisition (RUN mode).
         """
-        scope._instr.write(":RUN")
+        scope._write_checked(":RUN")
 
         # Give it a moment to start
         time.sleep(0.1)
 
         # Check trigger status
-        status = scope._instr.query(":TRIG:STAT?").strip()
+        status = scope._query_checked(":TRIG:STAT?").strip()
 
         return AcquisitionStatusResult(
             action=AcquisitionAction.RUN, trigger_status=map_trigger_status(status)
@@ -2632,13 +2674,13 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Stop acquisition (STOP mode).
         """
-        scope._instr.write(":STOP")
+        scope._write_checked(":STOP")
 
         # Give it a moment to stop
         time.sleep(0.1)
 
         # Check trigger status
-        status = scope._instr.query(":TRIG:STAT?").strip()
+        status = scope._query_checked(":TRIG:STAT?").strip()
 
         return AcquisitionStatusResult(
             action=AcquisitionAction.STOP, trigger_status=map_trigger_status(status)
@@ -2650,13 +2692,13 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Perform single acquisition (SINGLE mode).
         """
-        scope._instr.write(":SING")
+        scope._write_checked(":SING")
 
         # Give it a moment to arm
         time.sleep(0.1)
 
         # Check trigger status
-        status = scope._instr.query(":TRIG:STAT?").strip()
+        status = scope._query_checked(":TRIG:STAT?").strip()
 
         return AcquisitionStatusResult(
             action=AcquisitionAction.SINGLE, trigger_status=map_trigger_status(status)
@@ -2668,7 +2710,7 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Force a trigger event.
         """
-        scope._instr.write(":TFOR")
+        scope._write_checked(":TFOR")
 
         return ActionResult(action=SystemAction.FORCE_TRIGGER)
 
@@ -2679,10 +2721,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Get current trigger status.
         """
         # Query trigger status
-        status = scope._instr.query(":TRIG:STAT?").strip()
+        status = scope._query_checked(":TRIG:STAT?").strip()
 
         # Get additional trigger info
-        mode = scope._instr.query(":TRIG:MODE?").strip()
+        mode = scope._query_checked(":TRIG:MODE?").strip()
 
         result: TriggerStatusResult = {
             "trigger_status": map_trigger_status(status),
@@ -2695,12 +2737,12 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # If edge trigger, get edge-specific settings
         if mode in ["EDGE", "EDG"]:
-            actual_source = scope._instr.query(":TRIG:EDGE:SOUR?").strip()
+            actual_source = scope._query_checked(":TRIG:EDGE:SOUR?").strip()
             if actual_source.startswith("CHAN") or actual_source.startswith("CH"):
                 # Last character is channel number
                 result["channel"] = int(actual_source[-1])
-            result["trigger_level"] = float(scope._instr.query(":TRIG:EDGE:LEV?"))
-            raw_slope = scope._instr.query(":TRIG:EDGE:SLOP?").strip()
+            result["trigger_level"] = float(scope._query_checked(":TRIG:EDGE:LEV?"))
+            raw_slope = scope._query_checked(":TRIG:EDGE:SLOP?").strip()
             result["trigger_slope"] = map_trigger_slope_response(raw_slope)
 
         return result
@@ -2721,29 +2763,29 @@ def create_server(temp_dir: str) -> FastMCP:
         over time.
         """
         # Enable waveform recording
-        scope._instr.write(":RECord:WRECord:ENABle ON")
+        scope._write_checked(":RECord:WRECord:ENABle ON")
 
         # Set number of frames (None = use MAX)
         if frames is None:
-            scope._instr.write(":RECord:WRECord:FRAMes:MAX")
+            scope._write_checked(":RECord:WRECord:FRAMes:MAX")
         else:
-            scope._instr.write(f":RECord:WRECord:FRAMes {frames}")
+            scope._write_checked(f":RECord:WRECord:FRAMes {frames}")
 
         # Set frame interval
-        scope._instr.write(f":RECord:WRECord:FINTerval {frame_interval}")
+        scope._write_checked(f":RECord:WRECord:FINTerval {frame_interval}")
 
         # Start recording
-        scope._instr.write(":RECord:WRECord:OPERate RUN")
+        scope._write_checked(":RECord:WRECord:OPERate RUN")
 
         # Brief pause for settings to take effect
         time.sleep(0.1)
 
         # Query current state to confirm
-        enabled = bool(int(scope._instr.query(":RECord:WRECord:ENABle?")))
-        operation_str = scope._instr.query(":RECord:WRECord:OPERate?").strip()
-        actual_frames = int(scope._instr.query(":RECord:WRECord:FRAMes?"))
-        actual_interval = float(scope._instr.query(":RECord:WRECord:FINTerval?"))
-        max_frames = int(scope._instr.query(":RECord:WRECord:FMAX?"))
+        enabled = bool(int(scope._query_checked(":RECord:WRECord:ENABle?")))
+        operation_str = scope._query_checked(":RECord:WRECord:OPERate?").strip()
+        actual_frames = int(scope._query_checked(":RECord:WRECord:FRAMes?"))
+        actual_interval = float(scope._query_checked(":RECord:WRECord:FINTerval?"))
+        max_frames = int(scope._query_checked(":RECord:WRECord:FMAX?"))
 
         return WaveformRecordingResult(
             enabled=enabled,
@@ -2762,17 +2804,17 @@ def create_server(temp_dir: str) -> FastMCP:
         Stops the current recording operation and returns the final recording state.
         """
         # Stop recording
-        scope._instr.write(":RECord:WRECord:OPERate STOP")
+        scope._write_checked(":RECord:WRECord:OPERate STOP")
 
         # Brief pause
         time.sleep(0.1)
 
         # Query current state
-        enabled = bool(int(scope._instr.query(":RECord:WRECord:ENABle?")))
-        operation_str = scope._instr.query(":RECord:WRECord:OPERate?").strip()
-        actual_frames = int(scope._instr.query(":RECord:WRECord:FRAMes?"))
-        actual_interval = float(scope._instr.query(":RECord:WRECord:FINTerval?"))
-        max_frames = int(scope._instr.query(":RECord:WRECord:FMAX?"))
+        enabled = bool(int(scope._query_checked(":RECord:WRECord:ENABle?")))
+        operation_str = scope._query_checked(":RECord:WRECord:OPERate?").strip()
+        actual_frames = int(scope._query_checked(":RECord:WRECord:FRAMes?"))
+        actual_interval = float(scope._query_checked(":RECord:WRECord:FINTerval?"))
+        max_frames = int(scope._query_checked(":RECord:WRECord:FMAX?"))
 
         return WaveformRecordingResult(
             enabled=enabled,
@@ -2789,11 +2831,11 @@ def create_server(temp_dir: str) -> FastMCP:
         Query current recording status and configuration.
         """
         # Query current state
-        enabled = bool(int(scope._instr.query(":RECord:WRECord:ENABle?")))
-        operation_str = scope._instr.query(":RECord:WRECord:OPERate?").strip()
-        actual_frames = int(scope._instr.query(":RECord:WRECord:FRAMes?"))
-        actual_interval = float(scope._instr.query(":RECord:WRECord:FINTerval?"))
-        max_frames = int(scope._instr.query(":RECord:WRECord:FMAX?"))
+        enabled = bool(int(scope._query_checked(":RECord:WRECord:ENABle?")))
+        operation_str = scope._query_checked(":RECord:WRECord:OPERate?").strip()
+        actual_frames = int(scope._query_checked(":RECord:WRECord:FRAMes?"))
+        actual_interval = float(scope._query_checked(":RECord:WRECord:FINTerval?"))
+        max_frames = int(scope._query_checked(":RECord:WRECord:FMAX?"))
 
         return WaveformRecordingResult(
             enabled=enabled,
@@ -2813,10 +2855,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set trigger mode.
         """
-        scope._instr.write(f":TRIG:MODE {trigger_mode.value}")
+        scope._write_checked(f":TRIG:MODE {trigger_mode.value}")
 
         # Verify the setting
-        actual_mode = scope._instr.query(":TRIG:MODE?").strip()
+        actual_mode = scope._query_checked(":TRIG:MODE?").strip()
 
         # Map to enum - handle abbreviated responses
         for tm in TriggerMode:
@@ -2833,15 +2875,15 @@ def create_server(temp_dir: str) -> FastMCP:
         Set trigger source for edge trigger.
         """
         # Ensure we're in edge trigger mode
-        current_mode = scope._instr.query(":TRIG:MODE?").strip()
+        current_mode = scope._query_checked(":TRIG:MODE?").strip()
         if current_mode not in ["EDGE", "EDG"]:
-            scope._instr.write(":TRIG:MODE EDGE")
+            scope._write_checked(":TRIG:MODE EDGE")
 
         # Use the channel's SCPI format
-        scope._instr.write(f":TRIG:EDGE:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:EDGE:SOUR CHAN{channel}")
 
         # Verify the setting
-        actual_source = scope._instr.query(":TRIG:EDGE:SOUR?").strip()
+        actual_source = scope._query_checked(":TRIG:EDGE:SOUR?").strip()
 
         # Map back to channel number
         if actual_source.startswith("CHAN") or actual_source.startswith("CH"):
@@ -2866,17 +2908,17 @@ def create_server(temp_dir: str) -> FastMCP:
         # If source specified, set it first
         if channel:
             # Ensure we're in edge trigger mode
-            current_mode = scope._instr.query(":TRIG:MODE?").strip()
+            current_mode = scope._query_checked(":TRIG:MODE?").strip()
             if current_mode not in ["EDGE", "EDG"]:
-                scope._instr.write(":TRIG:MODE EDGE")
+                scope._write_checked(":TRIG:MODE EDGE")
 
             # Set the source
-            scope._instr.write(f":TRIG:EDGE:SOUR CHAN{channel}")
+            scope._write_checked(f":TRIG:EDGE:SOUR CHAN{channel}")
 
-        scope._instr.write(f":TRIG:EDGE:LEV {trigger_level}")
+        scope._write_checked(f":TRIG:EDGE:LEV {trigger_level}")
 
         # Verify the setting
-        actual_level = float(scope._instr.query(":TRIG:EDGE:LEV?"))
+        actual_level = float(scope._query_checked(":TRIG:EDGE:LEV?"))
 
         return TriggerLevelResult(trigger_level=actual_level, units="V")
 
@@ -2896,10 +2938,10 @@ def create_server(temp_dir: str) -> FastMCP:
             TriggerSlope.NEGATIVE: "NEG",
             TriggerSlope.EITHER: "RFAL",
         }
-        scope._instr.write(f":TRIG:EDGE:SLOP {slope_map[trigger_slope]}")
+        scope._write_checked(f":TRIG:EDGE:SLOP {slope_map[trigger_slope]}")
 
         # Verify the setting
-        actual_slope = scope._instr.query(":TRIG:EDGE:SLOP?").strip()
+        actual_slope = scope._query_checked(":TRIG:EDGE:SLOP?").strip()
 
         # Map back to friendly names
         result_slope = map_trigger_slope_response(actual_slope)
@@ -2924,10 +2966,10 @@ def create_server(temp_dir: str) -> FastMCP:
         - **HFReject**: High frequency rejection - blocks signals >150 kHz
         """
         # Map user-friendly coupling to SCPI format
-        scope._instr.write(f":TRIG:COUP {coupling}")
+        scope._write_checked(f":TRIG:COUP {coupling}")
 
         # Verify the setting
-        actual_coupling = scope._instr.query(":TRIG:COUP?").strip()
+        actual_coupling = scope._query_checked(":TRIG:COUP?").strip()
 
         # Map SCPI response back to user-friendly format
         # DHO800 may return abbreviated forms
@@ -2964,10 +3006,10 @@ def create_server(temp_dir: str) -> FastMCP:
         control *whether* the scope is acquiring.
         """
         # TriggerSweep enum values map directly to SCPI format
-        scope._instr.write(f":TRIG:SWE {sweep_mode.value}")
+        scope._write_checked(f":TRIG:SWE {sweep_mode.value}")
 
         # Verify the setting
-        actual_sweep = scope._instr.query(":TRIG:SWE?").strip()
+        actual_sweep = scope._query_checked(":TRIG:SWE?").strip()
 
         # Map response back to enum
         sweep_map = {
@@ -3004,10 +3046,10 @@ def create_server(temp_dir: str) -> FastMCP:
                 f"Holdoff time must be between 16ns and 10s, got {holdoff_time}s"
             )
 
-        scope._instr.write(f":TRIG:HOLD {holdoff_time}")
+        scope._write_checked(f":TRIG:HOLD {holdoff_time}")
 
         # Verify the setting
-        actual_holdoff = float(scope._instr.query(":TRIG:HOLD?"))
+        actual_holdoff = float(scope._query_checked(":TRIG:HOLD?"))
 
         # Convert to human-readable format
         if actual_holdoff >= 1:
@@ -3044,10 +3086,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Trade-off: Improved stability vs. reduced sensitivity to genuine small signals.
         """
         state = "ON" if enabled else "OFF"
-        scope._instr.write(f":TRIG:NREJ {state}")
+        scope._write_checked(f":TRIG:NREJ {state}")
 
         # Verify the setting
-        actual_state = int(scope._instr.query(":TRIG:NREJ?"))
+        actual_state = int(scope._query_checked(":TRIG:NREJ?"))
 
         return TriggerNoiseRejectResult(noise_reject_enabled=bool(actual_state))
 
@@ -3088,10 +3130,10 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("lower_width is required when when='WITHIN'")
 
         # Set trigger mode to PULSE
-        scope._instr.write(":TRIG:MODE PULS")
+        scope._write_checked(":TRIG:MODE PULS")
 
         # Set source channel
-        scope._instr.write(f":TRIG:PULS:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:PULS:SOUR CHAN{channel}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -3099,31 +3141,31 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope._instr.write(f":TRIG:PULS:WHEN {when_map[when]}")
+        scope._write_checked(f":TRIG:PULS:WHEN {when_map[when]}")
 
         # Set upper width
-        scope._instr.write(f":TRIG:PULS:UWID {upper_width}")
+        scope._write_checked(f":TRIG:PULS:UWID {upper_width}")
 
         # Set lower width if WITHIN
         if when == "WITHIN" and lower_width is not None:
-            scope._instr.write(f":TRIG:PULS:LWID {lower_width}")
+            scope._write_checked(f":TRIG:PULS:LWID {lower_width}")
 
         # Map polarity to SCPI format
         polarity_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._instr.write(f":TRIG:PULS:POL {polarity_map[polarity]}")
+        scope._write_checked(f":TRIG:PULS:POL {polarity_map[polarity]}")
 
         # Set trigger level
-        scope._instr.write(f":TRIG:PULS:LEV {level}")
+        scope._write_checked(f":TRIG:PULS:LEV {level}")
 
         # Verify configuration by reading back
-        actual_source = scope._instr.query(":TRIG:PULS:SOUR?").strip()
-        actual_when = scope._instr.query(":TRIG:PULS:WHEN?").strip()
-        actual_upper = float(scope._instr.query(":TRIG:PULS:UWID?"))
-        actual_polarity = scope._instr.query(":TRIG:PULS:POL?").strip()
-        actual_level = float(scope._instr.query(":TRIG:PULS:LEV?"))
+        actual_source = scope._query_checked(":TRIG:PULS:SOUR?").strip()
+        actual_when = scope._query_checked(":TRIG:PULS:WHEN?").strip()
+        actual_upper = float(scope._query_checked(":TRIG:PULS:UWID?"))
+        actual_polarity = scope._query_checked(":TRIG:PULS:POL?").strip()
+        actual_level = float(scope._query_checked(":TRIG:PULS:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3131,7 +3173,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read lower width if applicable
         actual_lower: Optional[float] = None
         if when == "WITHIN":
-            actual_lower = float(scope._instr.query(":TRIG:PULS:LWID?"))
+            actual_lower = float(scope._query_checked(":TRIG:PULS:LWID?"))
 
         # Map responses back to user-friendly format
         when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
@@ -3187,10 +3229,10 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("lower_time is required when when='WITHIN'")
 
         # Set trigger mode to SLOPE
-        scope._instr.write(":TRIG:MODE SLOP")
+        scope._write_checked(":TRIG:MODE SLOP")
 
         # Set source channel
-        scope._instr.write(f":TRIG:SLOP:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:SLOP:SOUR CHAN{channel}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -3198,37 +3240,37 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope._instr.write(f":TRIG:SLOP:WHEN {when_map[when]}")
+        scope._write_checked(f":TRIG:SLOP:WHEN {when_map[when]}")
 
         # Set upper time
-        scope._instr.write(f":TRIG:SLOP:TUPP {upper_time}")
+        scope._write_checked(f":TRIG:SLOP:TUPP {upper_time}")
 
         # Set lower time if WITHIN
         if when == "WITHIN" and lower_time is not None:
-            scope._instr.write(f":TRIG:SLOP:TLOW {lower_time}")
+            scope._write_checked(f":TRIG:SLOP:TLOW {lower_time}")
 
         # Map polarity to SCPI format
         polarity_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._instr.write(f":TRIG:SLOP:POL {polarity_map[polarity]}")
+        scope._write_checked(f":TRIG:SLOP:POL {polarity_map[polarity]}")
 
         # Set voltage levels
-        scope._instr.write(f":TRIG:SLOP:ALEV {level_a}")
-        scope._instr.write(f":TRIG:SLOP:BLEV {level_b}")
+        scope._write_checked(f":TRIG:SLOP:ALEV {level_a}")
+        scope._write_checked(f":TRIG:SLOP:BLEV {level_b}")
 
         # Set window
-        scope._instr.write(f":TRIG:SLOP:WIND {window}")
+        scope._write_checked(f":TRIG:SLOP:WIND {window}")
 
         # Verify configuration by reading back
-        actual_source = scope._instr.query(":TRIG:SLOP:SOUR?").strip()
-        actual_when = scope._instr.query(":TRIG:SLOP:WHEN?").strip()
-        actual_upper = float(scope._instr.query(":TRIG:SLOP:TUPP?"))
-        actual_polarity = scope._instr.query(":TRIG:SLOP:POL?").strip()
-        actual_level_a = float(scope._instr.query(":TRIG:SLOP:ALEV?"))
-        actual_level_b = float(scope._instr.query(":TRIG:SLOP:BLEV?"))
-        actual_window = scope._instr.query(":TRIG:SLOP:WIND?").strip()
+        actual_source = scope._query_checked(":TRIG:SLOP:SOUR?").strip()
+        actual_when = scope._query_checked(":TRIG:SLOP:WHEN?").strip()
+        actual_upper = float(scope._query_checked(":TRIG:SLOP:TUPP?"))
+        actual_polarity = scope._query_checked(":TRIG:SLOP:POL?").strip()
+        actual_level_a = float(scope._query_checked(":TRIG:SLOP:ALEV?"))
+        actual_level_b = float(scope._query_checked(":TRIG:SLOP:BLEV?"))
+        actual_window = scope._query_checked(":TRIG:SLOP:WIND?").strip()
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3236,7 +3278,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read lower time if applicable
         actual_lower: Optional[float] = None
         if when == "WITHIN":
-            actual_lower = float(scope._instr.query(":TRIG:SLOP:TLOW?"))
+            actual_lower = float(scope._query_checked(":TRIG:SLOP:TLOW?"))
 
         # Map responses back to user-friendly format
         when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
@@ -3286,17 +3328,17 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("line_number is required when mode='LINE'")
 
         # Set trigger mode to VIDEO
-        scope._instr.write(":TRIG:MODE VID")
+        scope._write_checked(":TRIG:MODE VID")
 
         # Set source channel
-        scope._instr.write(f":TRIG:VID:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:VID:SOUR CHAN{channel}")
 
         # Map polarity to SCPI format
         polarity_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._instr.write(f":TRIG:VID:POL {polarity_map[polarity]}")
+        scope._write_checked(f":TRIG:VID:POL {polarity_map[polarity]}")
 
         # Map mode to SCPI format
         mode_map = {
@@ -3305,11 +3347,11 @@ def create_server(temp_dir: str) -> FastMCP:
             "LINE": "LINE",
             "ALL_LINES": "ALIN",
         }
-        scope._instr.write(f":TRIG:VID:MODE {mode_map[mode]}")
+        scope._write_checked(f":TRIG:VID:MODE {mode_map[mode]}")
 
         # Set line number if LINE mode
         if mode == "LINE" and line_number is not None:
-            scope._instr.write(f":TRIG:VID:LINE {line_number}")
+            scope._write_checked(f":TRIG:VID:LINE {line_number}")
 
         # Map standard to SCPI format
         standard_map = {
@@ -3318,17 +3360,17 @@ def create_server(temp_dir: str) -> FastMCP:
             "480P": "480P",
             "576P": "576P",
         }
-        scope._instr.write(f":TRIG:VID:STAN {standard_map[standard]}")
+        scope._write_checked(f":TRIG:VID:STAN {standard_map[standard]}")
 
         # Set trigger level
-        scope._instr.write(f":TRIG:VID:LEV {level}")
+        scope._write_checked(f":TRIG:VID:LEV {level}")
 
         # Verify configuration
-        actual_source = scope._instr.query(":TRIG:VID:SOUR?").strip()
-        actual_polarity = scope._instr.query(":TRIG:VID:POL?").strip()
-        actual_mode = scope._instr.query(":TRIG:VID:MODE?").strip()
-        actual_standard = scope._instr.query(":TRIG:VID:STAN?").strip()
-        actual_level = float(scope._instr.query(":TRIG:VID:LEV?"))
+        actual_source = scope._query_checked(":TRIG:VID:SOUR?").strip()
+        actual_polarity = scope._query_checked(":TRIG:VID:POL?").strip()
+        actual_mode = scope._query_checked(":TRIG:VID:MODE?").strip()
+        actual_standard = scope._query_checked(":TRIG:VID:STAN?").strip()
+        actual_level = float(scope._query_checked(":TRIG:VID:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3336,7 +3378,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read line number if LINE mode
         actual_line: Optional[int] = None
         if mode == "LINE":
-            actual_line = int(scope._instr.query(":TRIG:VID:LINE?"))
+            actual_line = int(scope._query_checked(":TRIG:VID:LINE?"))
 
         # Map responses back
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -3393,27 +3435,27 @@ def create_server(temp_dir: str) -> FastMCP:
                 raise ValueError(f"Invalid pattern value '{val}'. Must be one of: {valid_values}")
 
         # Set trigger mode to PATTERN
-        scope._instr.write(":TRIG:MODE PATT")
+        scope._write_checked(":TRIG:MODE PATT")
 
         # Set pattern (comma-separated)
         pattern_str = ",".join(pattern)
-        scope._instr.write(f":TRIG:PATT:PATT {pattern_str}")
+        scope._write_checked(f":TRIG:PATT:PATT {pattern_str}")
 
         # Set trigger levels for specified channels
         for channel, level in levels.items():
             if channel < 1 or channel > 4:
                 raise ValueError(f"Channel must be 1-4, got {channel}")
-            scope._instr.write(f":TRIG:PATT:LEV{channel} {level}")
+            scope._write_checked(f":TRIG:PATT:LEV{channel} {level}")
 
         # Verify configuration
-        actual_pattern_str = scope._instr.query(":TRIG:PATT:PATT?").strip()
+        actual_pattern_str = scope._query_checked(":TRIG:PATT:PATT?").strip()
         actual_pattern = actual_pattern_str.split(",")
 
         # Read back levels for all channels
         actual_levels = {}
         for channel in range(1, 5):
             try:
-                level = float(scope._instr.query(f":TRIG:PATT:LEV{channel}?"))
+                level = float(scope._query_checked(f":TRIG:PATT:LEV{channel}?"))
                 actual_levels[channel] = level
             except:
                 pass  # Channel level may not be set
@@ -3453,17 +3495,17 @@ def create_server(temp_dir: str) -> FastMCP:
         - Power supply glitches
         """
         # Set trigger mode to RUNT
-        scope._instr.write(":TRIG:MODE RUNT")
+        scope._write_checked(":TRIG:MODE RUNT")
 
         # Set source channel
-        scope._instr.write(f":TRIG:RUNT:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:RUNT:SOUR CHAN{channel}")
 
         # Map polarity to SCPI format
         polarity_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._instr.write(f":TRIG:RUNT:POL {polarity_map[polarity]}")
+        scope._write_checked(f":TRIG:RUNT:POL {polarity_map[polarity]}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -3471,24 +3513,24 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope._instr.write(f":TRIG:RUNT:WHEN {when_map[when]}")
+        scope._write_checked(f":TRIG:RUNT:WHEN {when_map[when]}")
 
         # Set width limits
-        scope._instr.write(f":TRIG:RUNT:UWID {upper_width}")
-        scope._instr.write(f":TRIG:RUNT:LWID {lower_width}")
+        scope._write_checked(f":TRIG:RUNT:UWID {upper_width}")
+        scope._write_checked(f":TRIG:RUNT:LWID {lower_width}")
 
         # Set voltage thresholds
-        scope._instr.write(f":TRIG:RUNT:ALEV {level_a}")
-        scope._instr.write(f":TRIG:RUNT:BLEV {level_b}")
+        scope._write_checked(f":TRIG:RUNT:ALEV {level_a}")
+        scope._write_checked(f":TRIG:RUNT:BLEV {level_b}")
 
         # Verify configuration
-        actual_source = scope._instr.query(":TRIG:RUNT:SOUR?").strip()
-        actual_polarity = scope._instr.query(":TRIG:RUNT:POL?").strip()
-        actual_when = scope._instr.query(":TRIG:RUNT:WHEN?").strip()
-        actual_upper = float(scope._instr.query(":TRIG:RUNT:UWID?"))
-        actual_lower = float(scope._instr.query(":TRIG:RUNT:LWID?"))
-        actual_level_a = float(scope._instr.query(":TRIG:RUNT:ALEV?"))
-        actual_level_b = float(scope._instr.query(":TRIG:RUNT:BLEV?"))
+        actual_source = scope._query_checked(":TRIG:RUNT:SOUR?").strip()
+        actual_polarity = scope._query_checked(":TRIG:RUNT:POL?").strip()
+        actual_when = scope._query_checked(":TRIG:RUNT:WHEN?").strip()
+        actual_upper = float(scope._query_checked(":TRIG:RUNT:UWID?"))
+        actual_lower = float(scope._query_checked(":TRIG:RUNT:LWID?"))
+        actual_level_a = float(scope._query_checked(":TRIG:RUNT:ALEV?"))
+        actual_level_b = float(scope._query_checked(":TRIG:RUNT:BLEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3531,29 +3573,29 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing idle periods
         """
         # Set trigger mode to TIMEOUT
-        scope._instr.write(":TRIG:MODE TIM")
+        scope._write_checked(":TRIG:MODE TIM")
 
         # Set source channel
-        scope._instr.write(f":TRIG:TIM:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:TIM:SOUR CHAN{channel}")
 
         # Map slope to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._instr.write(f":TRIG:TIM:SLOP {slope_map[slope]}")
+        scope._write_checked(f":TRIG:TIM:SLOP {slope_map[slope]}")
 
         # Set timeout duration
-        scope._instr.write(f":TRIG:TIM:TIM {timeout}")
+        scope._write_checked(f":TRIG:TIM:TIM {timeout}")
 
         # Set trigger level
-        scope._instr.write(f":TRIG:TIM:LEV {level}")
+        scope._write_checked(f":TRIG:TIM:LEV {level}")
 
         # Verify configuration
-        actual_source = scope._instr.query(":TRIG:TIM:SOUR?").strip()
-        actual_slope = scope._instr.query(":TRIG:TIM:SLOP?").strip()
-        actual_timeout = float(scope._instr.query(":TRIG:TIM:TIM?"))
-        actual_level = float(scope._instr.query(":TRIG:TIM:LEV?"))
+        actual_source = scope._query_checked(":TRIG:TIM:SOUR?").strip()
+        actual_slope = scope._query_checked(":TRIG:TIM:SLOP?").strip()
+        actual_timeout = float(scope._query_checked(":TRIG:TIM:TIM?"))
+        actual_level = float(scope._query_checked(":TRIG:TIM:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3591,10 +3633,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Triggers on pattern that persists for specific duration.
         """
         # Set trigger mode to DURATION
-        scope._instr.write(":TRIG:MODE DUR")
+        scope._write_checked(":TRIG:MODE DUR")
 
         # Set source channel
-        scope._instr.write(f":TRIG:DUR:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:DUR:SOUR CHAN{channel}")
 
         # Map conditions to SCPI format
         condition_map = {
@@ -3602,23 +3644,23 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope._instr.write(f":TRIG:DUR:TYPE {condition_map[pattern_type]}")
-        scope._instr.write(f":TRIG:DUR:WHEN {condition_map[when]}")
+        scope._write_checked(f":TRIG:DUR:TYPE {condition_map[pattern_type]}")
+        scope._write_checked(f":TRIG:DUR:WHEN {condition_map[when]}")
 
         # Set time limits
-        scope._instr.write(f":TRIG:DUR:UWID {upper_width}")
-        scope._instr.write(f":TRIG:DUR:LWID {lower_width}")
+        scope._write_checked(f":TRIG:DUR:UWID {upper_width}")
+        scope._write_checked(f":TRIG:DUR:LWID {lower_width}")
 
         # Set trigger level
-        scope._instr.write(f":TRIG:DUR:LEV {level}")
+        scope._write_checked(f":TRIG:DUR:LEV {level}")
 
         # Verify configuration
-        actual_source = scope._instr.query(":TRIG:DUR:SOUR?").strip()
-        actual_type = scope._instr.query(":TRIG:DUR:TYPE?").strip()
-        actual_when = scope._instr.query(":TRIG:DUR:WHEN?").strip()
-        actual_upper = float(scope._instr.query(":TRIG:DUR:UWID?"))
-        actual_lower = float(scope._instr.query(":TRIG:DUR:LWID?"))
-        actual_level = float(scope._instr.query(":TRIG:DUR:LEV?"))
+        actual_source = scope._query_checked(":TRIG:DUR:SOUR?").strip()
+        actual_type = scope._query_checked(":TRIG:DUR:TYPE?").strip()
+        actual_when = scope._query_checked(":TRIG:DUR:WHEN?").strip()
+        actual_upper = float(scope._query_checked(":TRIG:DUR:UWID?"))
+        actual_lower = float(scope._query_checked(":TRIG:DUR:LWID?"))
+        actual_level = float(scope._query_checked(":TRIG:DUR:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3666,39 +3708,39 @@ def create_server(temp_dir: str) -> FastMCP:
         - Validating memory timing
         """
         # Set trigger mode to SETUP/HOLD
-        scope._instr.write(":TRIG:MODE SHOL")
+        scope._write_checked(":TRIG:MODE SHOL")
 
         # Set data and clock sources
-        scope._instr.write(f":TRIG:SHOL:DSRC CHAN{data_channel}")
-        scope._instr.write(f":TRIG:SHOL:CSRC CHAN{clock_channel}")
+        scope._write_checked(f":TRIG:SHOL:DSRC CHAN{data_channel}")
+        scope._write_checked(f":TRIG:SHOL:CSRC CHAN{clock_channel}")
 
         # Map clock slope to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._instr.write(f":TRIG:SHOL:SLOP {slope_map[clock_slope]}")
+        scope._write_checked(f":TRIG:SHOL:SLOP {slope_map[clock_slope]}")
 
         # Set data pattern
-        scope._instr.write(f":TRIG:SHOL:PATT {data_pattern}")
+        scope._write_checked(f":TRIG:SHOL:PATT {data_pattern}")
 
         # Set setup and hold times
-        scope._instr.write(f":TRIG:SHOL:STIM {setup_time}")
-        scope._instr.write(f":TRIG:SHOL:HTIM {hold_time}")
+        scope._write_checked(f":TRIG:SHOL:STIM {setup_time}")
+        scope._write_checked(f":TRIG:SHOL:HTIM {hold_time}")
 
         # Set voltage levels
-        scope._instr.write(f":TRIG:SHOL:DLEV {data_level}")
-        scope._instr.write(f":TRIG:SHOL:CLEV {clock_level}")
+        scope._write_checked(f":TRIG:SHOL:DLEV {data_level}")
+        scope._write_checked(f":TRIG:SHOL:CLEV {clock_level}")
 
         # Verify configuration
-        actual_dsrc = scope._instr.query(":TRIG:SHOL:DSRC?").strip()
-        actual_csrc = scope._instr.query(":TRIG:SHOL:CSRC?").strip()
-        actual_slope = scope._instr.query(":TRIG:SHOL:SLOP?").strip()
-        actual_pattern = scope._instr.query(":TRIG:SHOL:PATT?").strip()
-        actual_setup = float(scope._instr.query(":TRIG:SHOL:STIM?"))
-        actual_hold = float(scope._instr.query(":TRIG:SHOL:HTIM?"))
-        actual_dlev = float(scope._instr.query(":TRIG:SHOL:DLEV?"))
-        actual_clev = float(scope._instr.query(":TRIG:SHOL:CLEV?"))
+        actual_dsrc = scope._query_checked(":TRIG:SHOL:DSRC?").strip()
+        actual_csrc = scope._query_checked(":TRIG:SHOL:CSRC?").strip()
+        actual_slope = scope._query_checked(":TRIG:SHOL:SLOP?").strip()
+        actual_pattern = scope._query_checked(":TRIG:SHOL:PATT?").strip()
+        actual_setup = float(scope._query_checked(":TRIG:SHOL:STIM?"))
+        actual_hold = float(scope._query_checked(":TRIG:SHOL:HTIM?"))
+        actual_dlev = float(scope._query_checked(":TRIG:SHOL:DLEV?"))
+        actual_clev = float(scope._query_checked(":TRIG:SHOL:CLEV?"))
 
         # Parse channels from source
         actual_data_channel = _parse_channel_from_scpi(actual_dsrc)
@@ -3747,31 +3789,31 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError(f"edge_count must be 1-65535, got {edge_count}")
 
         # Set trigger mode to NTH EDGE
-        scope._instr.write(":TRIG:MODE NEDG")
+        scope._write_checked(":TRIG:MODE NEDG")
 
         # Set source channel
-        scope._instr.write(f":TRIG:NEDG:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:NEDG:SOUR CHAN{channel}")
 
         # Map slope to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._instr.write(f":TRIG:NEDG:SLOP {slope_map[slope]}")
+        scope._write_checked(f":TRIG:NEDG:SLOP {slope_map[slope]}")
 
         # Set idle time and edge count
-        scope._instr.write(f":TRIG:NEDG:IDLE {idle_time}")
-        scope._instr.write(f":TRIG:NEDG:EDGE {edge_count}")
+        scope._write_checked(f":TRIG:NEDG:IDLE {idle_time}")
+        scope._write_checked(f":TRIG:NEDG:EDGE {edge_count}")
 
         # Set trigger level
-        scope._instr.write(f":TRIG:NEDG:LEV {level}")
+        scope._write_checked(f":TRIG:NEDG:LEV {level}")
 
         # Verify configuration
-        actual_source = scope._instr.query(":TRIG:NEDG:SOUR?").strip()
-        actual_slope = scope._instr.query(":TRIG:NEDG:SLOP?").strip()
-        actual_idle = float(scope._instr.query(":TRIG:NEDG:IDLE?"))
-        actual_count = int(scope._instr.query(":TRIG:NEDG:EDGE?"))
-        actual_level = float(scope._instr.query(":TRIG:NEDG:LEV?"))
+        actual_source = scope._query_checked(":TRIG:NEDG:SOUR?").strip()
+        actual_slope = scope._query_checked(":TRIG:NEDG:SLOP?").strip()
+        actual_idle = float(scope._query_checked(":TRIG:NEDG:IDLE?"))
+        actual_count = int(scope._query_checked(":TRIG:NEDG:EDGE?"))
+        actual_level = float(scope._query_checked(":TRIG:NEDG:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3823,35 +3865,35 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("time is required when position='TIME'")
 
         # Set trigger mode to WINDOW
-        scope._instr.write(":TRIG:MODE WIND")
+        scope._write_checked(":TRIG:MODE WIND")
 
         # Set source channel
-        scope._instr.write(f":TRIG:WIND:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:WIND:SOUR CHAN{channel}")
 
         # Map slope to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._instr.write(f":TRIG:WIND:SLOP {slope_map[slope]}")
+        scope._write_checked(f":TRIG:WIND:SLOP {slope_map[slope]}")
 
         # Set position
-        scope._instr.write(f":TRIG:WIND:POS {position}")
+        scope._write_checked(f":TRIG:WIND:POS {position}")
 
         # Set time if TIME position
         if position == "TIME" and time is not None:
-            scope._instr.write(f":TRIG:WIND:TIME {time}")
+            scope._write_checked(f":TRIG:WIND:TIME {time}")
 
         # Set voltage thresholds
-        scope._instr.write(f":TRIG:WIND:ALEV {level_a}")
-        scope._instr.write(f":TRIG:WIND:BLEV {level_b}")
+        scope._write_checked(f":TRIG:WIND:ALEV {level_a}")
+        scope._write_checked(f":TRIG:WIND:BLEV {level_b}")
 
         # Verify configuration
-        actual_source = scope._instr.query(":TRIG:WIND:SOUR?").strip()
-        actual_slope = scope._instr.query(":TRIG:WIND:SLOP?").strip()
-        actual_position = scope._instr.query(":TRIG:WIND:POS?").strip()
-        actual_level_a = float(scope._instr.query(":TRIG:WIND:ALEV?"))
-        actual_level_b = float(scope._instr.query(":TRIG:WIND:BLEV?"))
+        actual_source = scope._query_checked(":TRIG:WIND:SOUR?").strip()
+        actual_slope = scope._query_checked(":TRIG:WIND:SLOP?").strip()
+        actual_position = scope._query_checked(":TRIG:WIND:POS?").strip()
+        actual_level_a = float(scope._query_checked(":TRIG:WIND:ALEV?"))
+        actual_level_b = float(scope._query_checked(":TRIG:WIND:BLEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3859,7 +3901,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read time if TIME position
         actual_time: Optional[float] = None
         if position == "TIME":
-            actual_time = float(scope._instr.query(":TRIG:WIND:TIME?"))
+            actual_time = float(scope._query_checked(":TRIG:WIND:TIME?"))
 
         # Map responses back
         slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -3915,19 +3957,19 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("lower_time is required when delay_type='WITHIN'")
 
         # Set trigger mode to DELAY
-        scope._instr.write(":TRIG:MODE DEL")
+        scope._write_checked(":TRIG:MODE DEL")
 
         # Set source channels
-        scope._instr.write(f":TRIG:DEL:SA CHAN{source_a_channel}")
-        scope._instr.write(f":TRIG:DEL:SB CHAN{source_b_channel}")
+        scope._write_checked(f":TRIG:DEL:SA CHAN{source_a_channel}")
+        scope._write_checked(f":TRIG:DEL:SB CHAN{source_b_channel}")
 
         # Map slopes to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope._instr.write(f":TRIG:DEL:SLOPA {slope_map[slope_a]}")
-        scope._instr.write(f":TRIG:DEL:SLOPB {slope_map[slope_b]}")
+        scope._write_checked(f":TRIG:DEL:SLOPA {slope_map[slope_a]}")
+        scope._write_checked(f":TRIG:DEL:SLOPB {slope_map[slope_b]}")
 
         # Map delay type to SCPI format
         type_map = {
@@ -3935,26 +3977,26 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope._instr.write(f":TRIG:DEL:TYPE {type_map[delay_type]}")
+        scope._write_checked(f":TRIG:DEL:TYPE {type_map[delay_type]}")
 
         # Set time limits
-        scope._instr.write(f":TRIG:DEL:TUPP {upper_time}")
+        scope._write_checked(f":TRIG:DEL:TUPP {upper_time}")
         if delay_type == "WITHIN" and lower_time is not None:
-            scope._instr.write(f":TRIG:DEL:TLOW {lower_time}")
+            scope._write_checked(f":TRIG:DEL:TLOW {lower_time}")
 
         # Set voltage levels
-        scope._instr.write(f":TRIG:DEL:LEVA {level_a}")
-        scope._instr.write(f":TRIG:DEL:LEVB {level_b}")
+        scope._write_checked(f":TRIG:DEL:LEVA {level_a}")
+        scope._write_checked(f":TRIG:DEL:LEVB {level_b}")
 
         # Verify configuration
-        actual_sa = scope._instr.query(":TRIG:DEL:SA?").strip()
-        actual_sb = scope._instr.query(":TRIG:DEL:SB?").strip()
-        actual_slope_a = scope._instr.query(":TRIG:DEL:SLOPA?").strip()
-        actual_slope_b = scope._instr.query(":TRIG:DEL:SLOPB?").strip()
-        actual_type = scope._instr.query(":TRIG:DEL:TYPE?").strip()
-        actual_upper = float(scope._instr.query(":TRIG:DEL:TUPP?"))
-        actual_level_a = float(scope._instr.query(":TRIG:DEL:LEVA?"))
-        actual_level_b = float(scope._instr.query(":TRIG:DEL:LEVB?"))
+        actual_sa = scope._query_checked(":TRIG:DEL:SA?").strip()
+        actual_sb = scope._query_checked(":TRIG:DEL:SB?").strip()
+        actual_slope_a = scope._query_checked(":TRIG:DEL:SLOPA?").strip()
+        actual_slope_b = scope._query_checked(":TRIG:DEL:SLOPB?").strip()
+        actual_type = scope._query_checked(":TRIG:DEL:TYPE?").strip()
+        actual_upper = float(scope._query_checked(":TRIG:DEL:TUPP?"))
+        actual_level_a = float(scope._query_checked(":TRIG:DEL:LEVA?"))
+        actual_level_b = float(scope._query_checked(":TRIG:DEL:LEVB?"))
 
         # Parse channels from source
         actual_source_a = _parse_channel_from_scpi(actual_sa)
@@ -3963,7 +4005,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read lower time if WITHIN
         actual_lower: Optional[float] = None
         if delay_type == "WITHIN":
-            actual_lower = float(scope._instr.query(":TRIG:DEL:TLOW?"))
+            actual_lower = float(scope._query_checked(":TRIG:DEL:TLOW?"))
 
         # Map responses back
         slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -4031,10 +4073,10 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("data_value is required when when='DATA'")
 
         # Set trigger mode to RS232
-        scope._instr.write(":TRIG:MODE RS232")
+        scope._write_checked(":TRIG:MODE RS232")
 
         # Set source channel
-        scope._instr.write(f":TRIG:RS232:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:RS232:SOUR CHAN{channel}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -4043,41 +4085,41 @@ def create_server(temp_dir: str) -> FastMCP:
             "PARITY_ERROR": "CERR",
             "DATA": "DATA",
         }
-        scope._instr.write(f":TRIG:RS232:WHEN {when_map[when]}")
+        scope._write_checked(f":TRIG:RS232:WHEN {when_map[when]}")
 
         # Set data value if DATA mode
         if when == "DATA" and data_value is not None:
-            scope._instr.write(f":TRIG:RS232:DATA {data_value}")
+            scope._write_checked(f":TRIG:RS232:DATA {data_value}")
 
         # Set baud rate
-        scope._instr.write(f":TRIG:RS232:BAUD {baud_rate}")
+        scope._write_checked(f":TRIG:RS232:BAUD {baud_rate}")
 
         # Set data width
-        scope._instr.write(f":TRIG:RS232:WIDT {data_bits}")
+        scope._write_checked(f":TRIG:RS232:WIDT {data_bits}")
 
         # Set stop bits
-        scope._instr.write(f":TRIG:RS232:STOP {stop_bits}")
+        scope._write_checked(f":TRIG:RS232:STOP {stop_bits}")
 
         # Map parity to SCPI format
         parity_scpi = SerialParity[parity].value
-        scope._instr.write(f":TRIG:RS232:PAR {parity_scpi}")
+        scope._write_checked(f":TRIG:RS232:PAR {parity_scpi}")
 
         # Map polarity to SCPI format
         polarity_map = {"POSITIVE": "POS", "NEGATIVE": "NEG"}
-        scope._instr.write(f":TRIG:RS232:POL {polarity_map[polarity]}")
+        scope._write_checked(f":TRIG:RS232:POL {polarity_map[polarity]}")
 
         # Set trigger level
-        scope._instr.write(f":TRIG:RS232:LEV {level}")
+        scope._write_checked(f":TRIG:RS232:LEV {level}")
 
         # Verify configuration by reading back
-        actual_source = scope._instr.query(":TRIG:RS232:SOUR?").strip()
-        actual_when = scope._instr.query(":TRIG:RS232:WHEN?").strip()
-        actual_baud = int(scope._instr.query(":TRIG:RS232:BAUD?"))
-        actual_width = int(scope._instr.query(":TRIG:RS232:WIDT?"))
-        actual_stop = scope._instr.query(":TRIG:RS232:STOP?").strip()
-        actual_parity = scope._instr.query(":TRIG:RS232:PAR?").strip()
-        actual_polarity = scope._instr.query(":TRIG:RS232:POL?").strip()
-        actual_level = float(scope._instr.query(":TRIG:RS232:LEV?"))
+        actual_source = scope._query_checked(":TRIG:RS232:SOUR?").strip()
+        actual_when = scope._query_checked(":TRIG:RS232:WHEN?").strip()
+        actual_baud = int(scope._query_checked(":TRIG:RS232:BAUD?"))
+        actual_width = int(scope._query_checked(":TRIG:RS232:WIDT?"))
+        actual_stop = scope._query_checked(":TRIG:RS232:STOP?").strip()
+        actual_parity = scope._query_checked(":TRIG:RS232:PAR?").strip()
+        actual_polarity = scope._query_checked(":TRIG:RS232:POL?").strip()
+        actual_level = float(scope._query_checked(":TRIG:RS232:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -4085,7 +4127,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read data value if DATA mode
         actual_data: Optional[int] = None
         if when == "DATA":
-            actual_data = int(scope._instr.query(":TRIG:RS232:DATA?"))
+            actual_data = int(scope._query_checked(":TRIG:RS232:DATA?"))
 
         # Map responses back to user-friendly format
         when_reverse = {"STAR": "START", "ERR": "ERROR", "CERR": "PARITY_ERROR", "DATA": "DATA"}
@@ -4151,11 +4193,11 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError(f"data_value is required when when='{when}'")
 
         # Set trigger mode to I2C
-        scope._instr.write(":TRIG:MODE IIC")
+        scope._write_checked(":TRIG:MODE IIC")
 
         # Set SCL and SDA channels
-        scope._instr.write(f":TRIG:IIC:SCL CHAN{scl_channel}")
-        scope._instr.write(f":TRIG:IIC:SDA CHAN{sda_channel}")
+        scope._write_checked(f":TRIG:IIC:SCL CHAN{scl_channel}")
+        scope._write_checked(f":TRIG:IIC:SDA CHAN{sda_channel}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -4167,35 +4209,35 @@ def create_server(temp_dir: str) -> FastMCP:
             "DATA": "DATA",
             "ADDRESS_DATA": "ADAT",
         }
-        scope._instr.write(f":TRIG:IIC:WHEN {when_map[when]}")
+        scope._write_checked(f":TRIG:IIC:WHEN {when_map[when]}")
 
         # Set address width
-        scope._instr.write(f":TRIG:IIC:AWID {address_width}")
+        scope._write_checked(f":TRIG:IIC:AWID {address_width}")
 
         # Set address if needed
         if when in ["ADDRESS", "ADDRESS_DATA"] and address is not None:
-            scope._instr.write(f":TRIG:IIC:ADDR {address}")
+            scope._write_checked(f":TRIG:IIC:ADDR {address}")
 
         # Set data if needed
         if when in ["DATA", "ADDRESS_DATA"] and data_value is not None:
-            scope._instr.write(f":TRIG:IIC:DATA {data_value}")
+            scope._write_checked(f":TRIG:IIC:DATA {data_value}")
 
         # Map direction to SCPI format
         direction_scpi = I2CDirection[direction].value
-        scope._instr.write(f":TRIG:IIC:DIR {direction_scpi}")
+        scope._write_checked(f":TRIG:IIC:DIR {direction_scpi}")
 
         # Set voltage levels
-        scope._instr.write(f":TRIG:IIC:CLEV {clock_level}")
-        scope._instr.write(f":TRIG:IIC:DLEV {data_level}")
+        scope._write_checked(f":TRIG:IIC:CLEV {clock_level}")
+        scope._write_checked(f":TRIG:IIC:DLEV {data_level}")
 
         # Verify configuration
-        actual_scl = scope._instr.query(":TRIG:IIC:SCL?").strip()
-        actual_sda = scope._instr.query(":TRIG:IIC:SDA?").strip()
-        actual_when = scope._instr.query(":TRIG:IIC:WHEN?").strip()
-        actual_width = scope._instr.query(":TRIG:IIC:AWID?").strip()
-        actual_direction = scope._instr.query(":TRIG:IIC:DIR?").strip()
-        actual_clevel = float(scope._instr.query(":TRIG:IIC:CLEV?"))
-        actual_dlevel = float(scope._instr.query(":TRIG:IIC:DLEV?"))
+        actual_scl = scope._query_checked(":TRIG:IIC:SCL?").strip()
+        actual_sda = scope._query_checked(":TRIG:IIC:SDA?").strip()
+        actual_when = scope._query_checked(":TRIG:IIC:WHEN?").strip()
+        actual_width = scope._query_checked(":TRIG:IIC:AWID?").strip()
+        actual_direction = scope._query_checked(":TRIG:IIC:DIR?").strip()
+        actual_clevel = float(scope._query_checked(":TRIG:IIC:CLEV?"))
+        actual_dlevel = float(scope._query_checked(":TRIG:IIC:DLEV?"))
 
         actual_scl_channel = _parse_channel_from_scpi(actual_scl)
         actual_sda_channel = _parse_channel_from_scpi(actual_sda)
@@ -4204,9 +4246,9 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_address: Optional[int] = None
         actual_data: Optional[int] = None
         if when in ["ADDRESS", "ADDRESS_DATA"]:
-            actual_address = int(scope._instr.query(":TRIG:IIC:ADDR?"))
+            actual_address = int(scope._query_checked(":TRIG:IIC:ADDR?"))
         if when in ["DATA", "ADDRESS_DATA"]:
-            actual_data = int(scope._instr.query(":TRIG:IIC:DATA?"))
+            actual_data = int(scope._query_checked(":TRIG:IIC:DATA?"))
 
         # Map responses back
         when_reverse = {
@@ -4286,50 +4328,50 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("cs_level is required when cs_channel is set")
 
         # Set trigger mode to SPI
-        scope._instr.write(":TRIG:MODE SPI")
+        scope._write_checked(":TRIG:MODE SPI")
 
         # Set SCLK channel
-        scope._instr.write(f":TRIG:SPI:CLK CHAN{sclk_channel}")
+        scope._write_checked(f":TRIG:SPI:CLK CHAN{sclk_channel}")
 
         # Set MISO channel if provided
         if miso_channel is not None:
-            scope._instr.write(f":TRIG:SPI:MISO CHAN{miso_channel}")
+            scope._write_checked(f":TRIG:SPI:MISO CHAN{miso_channel}")
 
         # Set CS channel if provided
         if cs_channel is not None:
-            scope._instr.write(f":TRIG:SPI:CS CHAN{cs_channel}")
+            scope._write_checked(f":TRIG:SPI:CS CHAN{cs_channel}")
 
         # Set clock slope
         slope_map = {"POSITIVE": "POS", "NEGATIVE": "NEG"}
-        scope._instr.write(f":TRIG:SPI:SLOP {slope_map[clock_slope]}")
+        scope._write_checked(f":TRIG:SPI:SLOP {slope_map[clock_slope]}")
 
         # Set when condition
-        scope._instr.write(":TRIG:SPI:WHEN TOUT")
+        scope._write_checked(":TRIG:SPI:WHEN TOUT")
 
         # Set timeout
-        scope._instr.write(f":TRIG:SPI:TIM {timeout}")
+        scope._write_checked(f":TRIG:SPI:TIM {timeout}")
 
         # Set data width
-        scope._instr.write(f":TRIG:SPI:WIDT {data_width}")
+        scope._write_checked(f":TRIG:SPI:WIDT {data_width}")
 
         # Set data value
-        scope._instr.write(f":TRIG:SPI:DATA {data_value}")
+        scope._write_checked(f":TRIG:SPI:DATA {data_value}")
 
         # Set voltage levels
-        scope._instr.write(f":TRIG:SPI:CLEV {clock_level}")
+        scope._write_checked(f":TRIG:SPI:CLEV {clock_level}")
         if miso_level is not None:
-            scope._instr.write(f":TRIG:SPI:DLEV {miso_level}")
+            scope._write_checked(f":TRIG:SPI:DLEV {miso_level}")
         if cs_level is not None:
-            scope._instr.write(f":TRIG:SPI:SLEV {cs_level}")
+            scope._write_checked(f":TRIG:SPI:SLEV {cs_level}")
 
         # Verify configuration
-        actual_sclk = scope._instr.query(":TRIG:SPI:CLK?").strip()
-        actual_slope = scope._instr.query(":TRIG:SPI:SLOP?").strip()
-        actual_when = scope._instr.query(":TRIG:SPI:WHEN?").strip()
-        actual_timeout = float(scope._instr.query(":TRIG:SPI:TIM?"))
-        actual_width = int(scope._instr.query(":TRIG:SPI:WIDT?"))
-        actual_data = int(scope._instr.query(":TRIG:SPI:DATA?"))
-        actual_clevel = float(scope._instr.query(":TRIG:SPI:CLEV?"))
+        actual_sclk = scope._query_checked(":TRIG:SPI:CLK?").strip()
+        actual_slope = scope._query_checked(":TRIG:SPI:SLOP?").strip()
+        actual_when = scope._query_checked(":TRIG:SPI:WHEN?").strip()
+        actual_timeout = float(scope._query_checked(":TRIG:SPI:TIM?"))
+        actual_width = int(scope._query_checked(":TRIG:SPI:WIDT?"))
+        actual_data = int(scope._query_checked(":TRIG:SPI:DATA?"))
+        actual_clevel = float(scope._query_checked(":TRIG:SPI:CLEV?"))
 
         actual_sclk_channel = _parse_channel_from_scpi(actual_sclk)
 
@@ -4340,14 +4382,14 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_cs_level: Optional[float] = None
 
         if miso_channel is not None:
-            miso_source = scope._instr.query(":TRIG:SPI:MISO?").strip()
+            miso_source = scope._query_checked(":TRIG:SPI:MISO?").strip()
             actual_miso = _parse_channel_from_scpi(miso_source)
-            actual_miso_level = float(scope._instr.query(":TRIG:SPI:DLEV?"))
+            actual_miso_level = float(scope._query_checked(":TRIG:SPI:DLEV?"))
 
         if cs_channel is not None:
-            cs_source = scope._instr.query(":TRIG:SPI:CS?").strip()
+            cs_source = scope._query_checked(":TRIG:SPI:CS?").strip()
             actual_cs = _parse_channel_from_scpi(cs_source)
-            actual_cs_level = float(scope._instr.query(":TRIG:SPI:SLEV?"))
+            actual_cs_level = float(scope._query_checked(":TRIG:SPI:SLEV?"))
 
         slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
 
@@ -4419,17 +4461,17 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError(f"data_bytes is required when when='{when}'")
 
         # Set trigger mode to CAN
-        scope._instr.write(":TRIG:MODE CAN")
+        scope._write_checked(":TRIG:MODE CAN")
 
         # Set source channel
-        scope._instr.write(f":TRIG:CAN:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:CAN:SOUR CHAN{channel}")
 
         # Set baud rate
-        scope._instr.write(f":TRIG:CAN:BAUD {baud_rate}")
+        scope._write_checked(f":TRIG:CAN:BAUD {baud_rate}")
 
         # Map signal type to SCPI format
         signal_scpi = CANSignalType[signal_type].value
-        scope._instr.write(f":TRIG:CAN:STYPE {signal_scpi}")
+        scope._write_checked(f":TRIG:CAN:STYPE {signal_scpi}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -4442,39 +4484,39 @@ def create_server(temp_dir: str) -> FastMCP:
             "END": "END",
             "ACK": "ACK",
         }
-        scope._instr.write(f":TRIG:CAN:WHEN {when_map[when]}")
+        scope._write_checked(f":TRIG:CAN:WHEN {when_map[when]}")
 
         # Set sample point
-        scope._instr.write(f":TRIG:CAN:SAMP {sample_point}")
+        scope._write_checked(f":TRIG:CAN:SAMP {sample_point}")
 
         # Set frame type
         frame_scpi = CANFrameType[frame_type].value
-        scope._instr.write(f":TRIG:CAN:FTYP {frame_scpi}")
+        scope._write_checked(f":TRIG:CAN:FTYP {frame_scpi}")
 
         # Set ID type
         id_scpi = CANIDType[id_type].value
-        scope._instr.write(f":TRIG:CAN:ITYP {id_scpi}")
+        scope._write_checked(f":TRIG:CAN:ITYP {id_scpi}")
 
         # Set identifier if needed
         if when in ["IDENTIFIER", "ID_DATA"] and identifier is not None:
-            scope._instr.write(f":TRIG:CAN:ID {identifier}")
+            scope._write_checked(f":TRIG:CAN:ID {identifier}")
 
         # Set data if needed
         if when in ["DATA", "ID_DATA"] and data_bytes is not None:
-            scope._instr.write(f":TRIG:CAN:DATA {data_bytes}")
+            scope._write_checked(f":TRIG:CAN:DATA {data_bytes}")
 
         # Set trigger level
-        scope._instr.write(f":TRIG:CAN:LEV {level}")
+        scope._write_checked(f":TRIG:CAN:LEV {level}")
 
         # Verify configuration
-        actual_source = scope._instr.query(":TRIG:CAN:SOUR?").strip()
-        actual_baud = int(scope._instr.query(":TRIG:CAN:BAUD?"))
-        actual_signal = scope._instr.query(":TRIG:CAN:STYPE?").strip()
-        actual_when = scope._instr.query(":TRIG:CAN:WHEN?").strip()
-        actual_sample = int(scope._instr.query(":TRIG:CAN:SAMP?"))
-        actual_frame = scope._instr.query(":TRIG:CAN:FTYP?").strip()
-        actual_id_type = scope._instr.query(":TRIG:CAN:ITYP?").strip()
-        actual_level = float(scope._instr.query(":TRIG:CAN:LEV?"))
+        actual_source = scope._query_checked(":TRIG:CAN:SOUR?").strip()
+        actual_baud = int(scope._query_checked(":TRIG:CAN:BAUD?"))
+        actual_signal = scope._query_checked(":TRIG:CAN:STYPE?").strip()
+        actual_when = scope._query_checked(":TRIG:CAN:WHEN?").strip()
+        actual_sample = int(scope._query_checked(":TRIG:CAN:SAMP?"))
+        actual_frame = scope._query_checked(":TRIG:CAN:FTYP?").strip()
+        actual_id_type = scope._query_checked(":TRIG:CAN:ITYP?").strip()
+        actual_level = float(scope._query_checked(":TRIG:CAN:LEV?"))
 
         actual_channel = _parse_channel_from_scpi(actual_source)
 
@@ -4482,9 +4524,9 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_id: Optional[int] = None
         actual_data: Optional[str] = None
         if when in ["IDENTIFIER", "ID_DATA"]:
-            actual_id = int(scope._instr.query(":TRIG:CAN:ID?"))
+            actual_id = int(scope._query_checked(":TRIG:CAN:ID?"))
         if when in ["DATA", "ID_DATA"]:
-            actual_data = scope._instr.query(":TRIG:CAN:DATA?").strip()
+            actual_data = scope._query_checked(":TRIG:CAN:DATA?").strip()
 
         # Map responses back
         when_reverse = {
@@ -4562,17 +4604,17 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError(f"data_bytes is required when when='{when}'")
 
         # Set trigger mode to LIN
-        scope._instr.write(":TRIG:MODE LIN")
+        scope._write_checked(":TRIG:MODE LIN")
 
         # Set source channel
-        scope._instr.write(f":TRIG:LIN:SOUR CHAN{channel}")
+        scope._write_checked(f":TRIG:LIN:SOUR CHAN{channel}")
 
         # Map standard to SCPI format
         standard_scpi = LINStandard[standard].value
-        scope._instr.write(f":TRIG:LIN:STAN {standard_scpi}")
+        scope._write_checked(f":TRIG:LIN:STAN {standard_scpi}")
 
         # Set baud rate
-        scope._instr.write(f":TRIG:LIN:BAUD {baud_rate}")
+        scope._write_checked(f":TRIG:LIN:BAUD {baud_rate}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -4583,30 +4625,30 @@ def create_server(temp_dir: str) -> FastMCP:
             "ERROR": "ERR",
             "WAKEUP": "AWAK",
         }
-        scope._instr.write(f":TRIG:LIN:WHEN {when_map[when]}")
+        scope._write_checked(f":TRIG:LIN:WHEN {when_map[when]}")
 
         # Set error type if ERROR mode
         if when == "ERROR" and error_type is not None:
             error_scpi = LINErrorType[error_type].value
-            scope._instr.write(f":TRIG:LIN:ETYP {error_scpi}")
+            scope._write_checked(f":TRIG:LIN:ETYP {error_scpi}")
 
         # Set identifier if needed
         if when in ["IDENTIFIER", "ID_DATA"] and identifier is not None:
-            scope._instr.write(f":TRIG:LIN:ID {identifier}")
+            scope._write_checked(f":TRIG:LIN:ID {identifier}")
 
         # Set data if needed
         if when in ["DATA", "ID_DATA"] and data_bytes is not None:
-            scope._instr.write(f":TRIG:LIN:DATA {data_bytes}")
+            scope._write_checked(f":TRIG:LIN:DATA {data_bytes}")
 
         # Set trigger level
-        scope._instr.write(f":TRIG:LIN:LEV {level}")
+        scope._write_checked(f":TRIG:LIN:LEV {level}")
 
         # Verify configuration
-        actual_source = scope._instr.query(":TRIG:LIN:SOUR?").strip()
-        actual_standard = scope._instr.query(":TRIG:LIN:STAN?").strip()
-        actual_baud = int(scope._instr.query(":TRIG:LIN:BAUD?"))
-        actual_when = scope._instr.query(":TRIG:LIN:WHEN?").strip()
-        actual_level = float(scope._instr.query(":TRIG:LIN:LEV?"))
+        actual_source = scope._query_checked(":TRIG:LIN:SOUR?").strip()
+        actual_standard = scope._query_checked(":TRIG:LIN:STAN?").strip()
+        actual_baud = int(scope._query_checked(":TRIG:LIN:BAUD?"))
+        actual_when = scope._query_checked(":TRIG:LIN:WHEN?").strip()
+        actual_level = float(scope._query_checked(":TRIG:LIN:LEV?"))
 
         actual_channel = _parse_channel_from_scpi(actual_source)
 
@@ -4616,7 +4658,7 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_data: Optional[str] = None
 
         if when == "ERROR":
-            err_type = scope._instr.query(":TRIG:LIN:ETYP?").strip()
+            err_type = scope._query_checked(":TRIG:LIN:ETYP?").strip()
             error_reverse = {
                 "SYNE": "SYNC_ERROR",
                 "PARE": "PARITY_ERROR",
@@ -4626,10 +4668,10 @@ def create_server(temp_dir: str) -> FastMCP:
             actual_error = error_reverse.get(err_type)
 
         if when in ["IDENTIFIER", "ID_DATA"]:
-            actual_id = int(scope._instr.query(":TRIG:LIN:ID?"))
+            actual_id = int(scope._query_checked(":TRIG:LIN:ID?"))
 
         if when in ["DATA", "ID_DATA"]:
-            actual_data = scope._instr.query(":TRIG:LIN:DATA?").strip()
+            actual_data = scope._query_checked(":TRIG:LIN:DATA?").strip()
 
         # Map responses back
         when_reverse = {
@@ -4692,44 +4734,44 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing microprocessor buses
         """
         # Set bus mode to PARALLEL
-        scope._instr.write(f":BUS{bus_number}:MODE PAR")
+        scope._write_checked(f":BUS{bus_number}:MODE PAR")
 
         # Set bus width
-        scope._instr.write(f":BUS{bus_number}:PAR:WIDT {width}")
+        scope._write_checked(f":BUS{bus_number}:PAR:WIDT {width}")
 
         # Set bit assignments
         for bit_pos, chan in bit_assignments.items():
             if bit_pos < 0 or bit_pos >= width:
                 raise ValueError(f"Bit position {bit_pos} out of range for width {width}")
-            scope._instr.write(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR CHAN{chan}")
+            scope._write_checked(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR CHAN{chan}")
 
         # Set clock channel if provided
         if clock_channel is not None:
-            scope._instr.write(f":BUS{bus_number}:PAR:CLK CHAN{clock_channel}")
+            scope._write_checked(f":BUS{bus_number}:PAR:CLK CHAN{clock_channel}")
 
         # Set clock polarity
         polarity_scpi = "POS" if clock_polarity == "POSITIVE" else "NEG"
-        scope._instr.write(f":BUS{bus_number}:PAR:SLOP {polarity_scpi}")
+        scope._write_checked(f":BUS{bus_number}:PAR:SLOP {polarity_scpi}")
 
         # Set bit order
         bit_order_scpi = BitOrder[bit_order].value
-        scope._instr.write(f":BUS{bus_number}:PAR:END {bit_order_scpi}")
+        scope._write_checked(f":BUS{bus_number}:PAR:END {bit_order_scpi}")
 
         # Verify configuration
-        actual_width = int(scope._instr.query(f":BUS{bus_number}:PAR:WIDT?"))
-        actual_polarity = scope._instr.query(f":BUS{bus_number}:PAR:SLOP?").strip()
-        actual_bit_order = scope._instr.query(f":BUS{bus_number}:PAR:END?").strip()
+        actual_width = int(scope._query_checked(f":BUS{bus_number}:PAR:WIDT?"))
+        actual_polarity = scope._query_checked(f":BUS{bus_number}:PAR:SLOP?").strip()
+        actual_bit_order = scope._query_checked(f":BUS{bus_number}:PAR:END?").strip()
 
         # Read back bit assignments
         verified_assignments = {}
         for bit_pos in range(actual_width):
-            bit_source = scope._instr.query(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR?").strip()
+            bit_source = scope._query_checked(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR?").strip()
             verified_assignments[bit_pos] = _parse_channel_from_scpi(bit_source)
 
         # Read clock channel if configured
         actual_clock: Optional[int] = None
         if clock_channel is not None:
-            clock_source = scope._instr.query(f":BUS{bus_number}:PAR:CLK?").strip()
+            clock_source = scope._query_checked(f":BUS{bus_number}:PAR:CLK?").strip()
             actual_clock = _parse_channel_from_scpi(clock_source)
 
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -4790,53 +4832,53 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing serial protocols
         """
         # Set bus mode to RS232
-        scope._instr.write(f":BUS{bus_number}:MODE RS232")
+        scope._write_checked(f":BUS{bus_number}:MODE RS232")
 
         # Set TX channel if provided
         if tx_channel is not None:
-            scope._instr.write(f":BUS{bus_number}:RS232:TX CHAN{tx_channel}")
+            scope._write_checked(f":BUS{bus_number}:RS232:TX CHAN{tx_channel}")
 
         # Set RX channel if provided
         if rx_channel is not None:
-            scope._instr.write(f":BUS{bus_number}:RS232:RX CHAN{rx_channel}")
+            scope._write_checked(f":BUS{bus_number}:RS232:RX CHAN{rx_channel}")
 
         # Set polarity
         polarity_scpi = "POS" if polarity == "POSITIVE" else "NEG"
-        scope._instr.write(f":BUS{bus_number}:RS232:POL {polarity_scpi}")
+        scope._write_checked(f":BUS{bus_number}:RS232:POL {polarity_scpi}")
 
         # Set parity
         parity_scpi = SerialParity[parity].value
-        scope._instr.write(f":BUS{bus_number}:RS232:PAR {parity_scpi}")
+        scope._write_checked(f":BUS{bus_number}:RS232:PAR {parity_scpi}")
 
         # Set bit order
         bit_order_scpi = BitOrder[bit_order].value
-        scope._instr.write(f":BUS{bus_number}:RS232:END {bit_order_scpi}")
+        scope._write_checked(f":BUS{bus_number}:RS232:END {bit_order_scpi}")
 
         # Set baud rate
-        scope._instr.write(f":BUS{bus_number}:RS232:BAUD {baud_rate}")
+        scope._write_checked(f":BUS{bus_number}:RS232:BAUD {baud_rate}")
 
         # Set data bits
-        scope._instr.write(f":BUS{bus_number}:RS232:DBIT {data_bits}")
+        scope._write_checked(f":BUS{bus_number}:RS232:DBIT {data_bits}")
 
         # Set stop bits
-        scope._instr.write(f":BUS{bus_number}:RS232:SBIT {stop_bits}")
+        scope._write_checked(f":BUS{bus_number}:RS232:SBIT {stop_bits}")
 
         # Verify configuration
-        actual_polarity = scope._instr.query(f":BUS{bus_number}:RS232:POL?").strip()
-        actual_parity = scope._instr.query(f":BUS{bus_number}:RS232:PAR?").strip()
-        actual_bit_order = scope._instr.query(f":BUS{bus_number}:RS232:END?").strip()
-        actual_baud = int(scope._instr.query(f":BUS{bus_number}:RS232:BAUD?"))
-        actual_data_bits = int(scope._instr.query(f":BUS{bus_number}:RS232:DBIT?"))
-        actual_stop_bits = scope._instr.query(f":BUS{bus_number}:RS232:SBIT?").strip()
+        actual_polarity = scope._query_checked(f":BUS{bus_number}:RS232:POL?").strip()
+        actual_parity = scope._query_checked(f":BUS{bus_number}:RS232:PAR?").strip()
+        actual_bit_order = scope._query_checked(f":BUS{bus_number}:RS232:END?").strip()
+        actual_baud = int(scope._query_checked(f":BUS{bus_number}:RS232:BAUD?"))
+        actual_data_bits = int(scope._query_checked(f":BUS{bus_number}:RS232:DBIT?"))
+        actual_stop_bits = scope._query_checked(f":BUS{bus_number}:RS232:SBIT?").strip()
 
         # Read TX/RX channels if configured
         actual_tx: Optional[int] = None
         actual_rx: Optional[int] = None
         if tx_channel is not None:
-            tx_source = scope._instr.query(f":BUS{bus_number}:RS232:TX?").strip()
+            tx_source = scope._query_checked(f":BUS{bus_number}:RS232:TX?").strip()
             actual_tx = _parse_channel_from_scpi(tx_source)
         if rx_channel is not None:
-            rx_source = scope._instr.query(f":BUS{bus_number}:RS232:RX?").strip()
+            rx_source = scope._query_checked(f":BUS{bus_number}:RS232:RX?").strip()
             actual_rx = _parse_channel_from_scpi(rx_source)
 
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -4877,19 +4919,19 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing I2C devices
         """
         # Set bus mode to I2C
-        scope._instr.write(f":BUS{bus_number}:MODE IIC")
+        scope._write_checked(f":BUS{bus_number}:MODE IIC")
 
         # Set SCL and SDA channels
-        scope._instr.write(f":BUS{bus_number}:IIC:SCLK:SOUR CHAN{scl_channel}")
-        scope._instr.write(f":BUS{bus_number}:IIC:SDA:SOUR CHAN{sda_channel}")
+        scope._write_checked(f":BUS{bus_number}:IIC:SCLK:SOUR CHAN{scl_channel}")
+        scope._write_checked(f":BUS{bus_number}:IIC:SDA:SOUR CHAN{sda_channel}")
 
         # Set address width
-        scope._instr.write(f":BUS{bus_number}:IIC:ADDR {address_width}")
+        scope._write_checked(f":BUS{bus_number}:IIC:ADDR {address_width}")
 
         # Verify configuration
-        actual_scl = scope._instr.query(f":BUS{bus_number}:IIC:SCLK:SOUR?").strip()
-        actual_sda = scope._instr.query(f":BUS{bus_number}:IIC:SDA:SOUR?").strip()
-        actual_width = scope._instr.query(f":BUS{bus_number}:IIC:ADDR?").strip()
+        actual_scl = scope._query_checked(f":BUS{bus_number}:IIC:SCLK:SOUR?").strip()
+        actual_sda = scope._query_checked(f":BUS{bus_number}:IIC:SDA:SOUR?").strip()
+        actual_width = scope._query_checked(f":BUS{bus_number}:IIC:ADDR?").strip()
 
         actual_scl_channel = _parse_channel_from_scpi(actual_scl)
         actual_sda_channel = _parse_channel_from_scpi(actual_sda)
@@ -4947,44 +4989,44 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing SPI devices
         """
         # Set bus mode to SPI
-        scope._instr.write(f":BUS{bus_number}:MODE SPI")
+        scope._write_checked(f":BUS{bus_number}:MODE SPI")
 
         # Set SCLK channel
-        scope._instr.write(f":BUS{bus_number}:SPI:SCLK:SOUR CHAN{sclk_channel}")
+        scope._write_checked(f":BUS{bus_number}:SPI:SCLK:SOUR CHAN{sclk_channel}")
 
         # Set optional channels
         if miso_channel is not None:
-            scope._instr.write(f":BUS{bus_number}:SPI:MISO:SOUR CHAN{miso_channel}")
+            scope._write_checked(f":BUS{bus_number}:SPI:MISO:SOUR CHAN{miso_channel}")
         if mosi_channel is not None:
-            scope._instr.write(f":BUS{bus_number}:SPI:MOSI:SOUR CHAN{mosi_channel}")
+            scope._write_checked(f":BUS{bus_number}:SPI:MOSI:SOUR CHAN{mosi_channel}")
         if ss_channel is not None:
-            scope._instr.write(f":BUS{bus_number}:SPI:SS:SOUR CHAN{ss_channel}")
+            scope._write_checked(f":BUS{bus_number}:SPI:SS:SOUR CHAN{ss_channel}")
 
         # Set clock slope/polarity
         polarity_scpi = "POS" if clock_polarity == "POSITIVE" else "NEG"
-        scope._instr.write(f":BUS{bus_number}:SPI:SCLK:SLOP {polarity_scpi}")
+        scope._write_checked(f":BUS{bus_number}:SPI:SCLK:SLOP {polarity_scpi}")
 
         # Set data bits
-        scope._instr.write(f":BUS{bus_number}:SPI:DBIT {data_bits}")
+        scope._write_checked(f":BUS{bus_number}:SPI:DBIT {data_bits}")
 
         # Set bit order
         bit_order_scpi = BitOrder[bit_order].value
-        scope._instr.write(f":BUS{bus_number}:SPI:END {bit_order_scpi}")
+        scope._write_checked(f":BUS{bus_number}:SPI:END {bit_order_scpi}")
 
         # Set SPI mode
         spi_mode_scpi = SPIMode[spi_mode].value
-        scope._instr.write(f":BUS{bus_number}:SPI:MODE {spi_mode_scpi}")
+        scope._write_checked(f":BUS{bus_number}:SPI:MODE {spi_mode_scpi}")
 
         # Set timeout
-        scope._instr.write(f":BUS{bus_number}:SPI:TIM:TIME {timeout}")
+        scope._write_checked(f":BUS{bus_number}:SPI:TIM:TIME {timeout}")
 
         # Verify configuration
-        actual_sclk = scope._instr.query(f":BUS{bus_number}:SPI:SCLK:SOUR?").strip()
-        actual_polarity = scope._instr.query(f":BUS{bus_number}:SPI:SCLK:SLOP?").strip()
-        actual_data_bits = int(scope._instr.query(f":BUS{bus_number}:SPI:DBIT?"))
-        actual_bit_order = scope._instr.query(f":BUS{bus_number}:SPI:END?").strip()
-        actual_spi_mode = scope._instr.query(f":BUS{bus_number}:SPI:MODE?").strip()
-        actual_timeout = float(scope._instr.query(f":BUS{bus_number}:SPI:TIM:TIME?"))
+        actual_sclk = scope._query_checked(f":BUS{bus_number}:SPI:SCLK:SOUR?").strip()
+        actual_polarity = scope._query_checked(f":BUS{bus_number}:SPI:SCLK:SLOP?").strip()
+        actual_data_bits = int(scope._query_checked(f":BUS{bus_number}:SPI:DBIT?"))
+        actual_bit_order = scope._query_checked(f":BUS{bus_number}:SPI:END?").strip()
+        actual_spi_mode = scope._query_checked(f":BUS{bus_number}:SPI:MODE?").strip()
+        actual_timeout = float(scope._query_checked(f":BUS{bus_number}:SPI:TIM:TIME?"))
 
         actual_sclk_channel = _parse_channel_from_scpi(actual_sclk)
 
@@ -4993,13 +5035,13 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_mosi: Optional[int] = None
         actual_ss: Optional[int] = None
         if miso_channel is not None:
-            miso_source = scope._instr.query(f":BUS{bus_number}:SPI:MISO:SOUR?").strip()
+            miso_source = scope._query_checked(f":BUS{bus_number}:SPI:MISO:SOUR?").strip()
             actual_miso = _parse_channel_from_scpi(miso_source)
         if mosi_channel is not None:
-            mosi_source = scope._instr.query(f":BUS{bus_number}:SPI:MOSI:SOUR?").strip()
+            mosi_source = scope._query_checked(f":BUS{bus_number}:SPI:MOSI:SOUR?").strip()
             actual_mosi = _parse_channel_from_scpi(mosi_source)
         if ss_channel is not None:
-            ss_source = scope._instr.query(f":BUS{bus_number}:SPI:SS:SOUR?").strip()
+            ss_source = scope._query_checked(f":BUS{bus_number}:SPI:SS:SOUR?").strip()
             actual_ss = _parse_channel_from_scpi(ss_source)
 
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -5051,26 +5093,26 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing automotive networks
         """
         # Set bus mode to CAN
-        scope._instr.write(f":BUS{bus_number}:MODE CAN")
+        scope._write_checked(f":BUS{bus_number}:MODE CAN")
 
         # Set source channel
-        scope._instr.write(f":BUS{bus_number}:CAN:SOUR CHAN{source_channel}")
+        scope._write_checked(f":BUS{bus_number}:CAN:SOUR CHAN{source_channel}")
 
         # Set signal type
         signal_scpi = CANSignalType[signal_type].value
-        scope._instr.write(f":BUS{bus_number}:CAN:STYPE {signal_scpi}")
+        scope._write_checked(f":BUS{bus_number}:CAN:STYPE {signal_scpi}")
 
         # Set baud rate
-        scope._instr.write(f":BUS{bus_number}:CAN:BAUD {baud_rate}")
+        scope._write_checked(f":BUS{bus_number}:CAN:BAUD {baud_rate}")
 
         # Set sample point
-        scope._instr.write(f":BUS{bus_number}:CAN:SAMP {sample_point}")
+        scope._write_checked(f":BUS{bus_number}:CAN:SAMP {sample_point}")
 
         # Verify configuration
-        actual_source = scope._instr.query(f":BUS{bus_number}:CAN:SOUR?").strip()
-        actual_signal = scope._instr.query(f":BUS{bus_number}:CAN:STYPE?").strip()
-        actual_baud = int(scope._instr.query(f":BUS{bus_number}:CAN:BAUD?"))
-        actual_sample = int(scope._instr.query(f":BUS{bus_number}:CAN:SAMP?"))
+        actual_source = scope._query_checked(f":BUS{bus_number}:CAN:SOUR?").strip()
+        actual_signal = scope._query_checked(f":BUS{bus_number}:CAN:STYPE?").strip()
+        actual_baud = int(scope._query_checked(f":BUS{bus_number}:CAN:BAUD?"))
+        actual_sample = int(scope._query_checked(f":BUS{bus_number}:CAN:SAMP?"))
 
         actual_source_channel = _parse_channel_from_scpi(actual_source)
 
@@ -5109,23 +5151,23 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing automotive LIN networks
         """
         # Set bus mode to LIN
-        scope._instr.write(f":BUS{bus_number}:MODE LIN")
+        scope._write_checked(f":BUS{bus_number}:MODE LIN")
 
         # Set source channel
-        scope._instr.write(f":BUS{bus_number}:LIN:SOUR CHAN{source_channel}")
+        scope._write_checked(f":BUS{bus_number}:LIN:SOUR CHAN{source_channel}")
 
         # Set parity
         parity_scpi = "ENH" if parity == "ENHANCED" else "CLAS"
-        scope._instr.write(f":BUS{bus_number}:LIN:PAR {parity_scpi}")
+        scope._write_checked(f":BUS{bus_number}:LIN:PAR {parity_scpi}")
 
         # Set standard
         standard_scpi = LINStandard[standard].value
-        scope._instr.write(f":BUS{bus_number}:LIN:STAN {standard_scpi}")
+        scope._write_checked(f":BUS{bus_number}:LIN:STAN {standard_scpi}")
 
         # Verify configuration
-        actual_source = scope._instr.query(f":BUS{bus_number}:LIN:SOUR?").strip()
-        actual_parity = scope._instr.query(f":BUS{bus_number}:LIN:PAR?").strip()
-        actual_standard = scope._instr.query(f":BUS{bus_number}:LIN:STAN?").strip()
+        actual_source = scope._query_checked(f":BUS{bus_number}:LIN:SOUR?").strip()
+        actual_parity = scope._query_checked(f":BUS{bus_number}:LIN:PAR?").strip()
+        actual_standard = scope._query_checked(f":BUS{bus_number}:LIN:STAN?").strip()
 
         actual_source_channel = _parse_channel_from_scpi(actual_source)
 
@@ -5155,10 +5197,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         # Set bus display
         display_cmd = "ON" if enabled else "OFF"
-        scope._instr.write(f":BUS{bus_number}:DISP {display_cmd}")
+        scope._write_checked(f":BUS{bus_number}:DISP {display_cmd}")
 
         # Verify
-        actual_display = scope._instr.query(f":BUS{bus_number}:DISP?").strip()
+        actual_display = scope._query_checked(f":BUS{bus_number}:DISP?").strip()
         actual_enabled = actual_display == "1" or actual_display.upper() == "ON"
 
         return BusDisplayResult(
@@ -5183,10 +5225,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         # Set bus format
         format_scpi = BusFormat[format].value
-        scope._instr.write(f":BUS{bus_number}:FORM {format_scpi}")
+        scope._write_checked(f":BUS{bus_number}:FORM {format_scpi}")
 
         # Verify
-        actual_format = scope._instr.query(f":BUS{bus_number}:FORM?").strip()
+        actual_format = scope._query_checked(f":BUS{bus_number}:FORM?").strip()
 
         format_reverse = {"HEX": "HEX", "DEC": "DEC", "BIN": "BIN", "ASC": "ASCII"}
 
@@ -5206,7 +5248,7 @@ def create_server(temp_dir: str) -> FastMCP:
         Returns the currently decoded bus data as displayed on the oscilloscope.
         """
         # Query decoded bus data
-        decoded_data = scope._instr.query(f":BUS{bus_number}:DATA?").strip()
+        decoded_data = scope._query_checked(f":BUS{bus_number}:DATA?").strip()
 
         return BusDataResult(
             bus_number=bus_number,
@@ -5238,7 +5280,7 @@ def create_server(temp_dir: str) -> FastMCP:
         )
 
         # Export bus data to CSV on scope
-        scope._instr.write(f":BUS{bus_number}:EEXP '{csv_scope_path}'")
+        scope._write_checked(f":BUS{bus_number}:EEXP '{csv_scope_path}'")
 
         # Wait for export to complete
         await asyncio.sleep(0.5)
@@ -5275,10 +5317,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set acquisition memory depth.
         """
-        scope._instr.write(f":ACQ:MDEP {memory_depth.value}")
+        scope._write_checked(f":ACQ:MDEP {memory_depth.value}")
 
         # Verify the setting
-        actual_depth = float(scope._instr.query(":ACQ:MDEP?"))
+        actual_depth = float(scope._query_checked(":ACQ:MDEP?"))
 
         # Convert to human-readable format
         if actual_depth >= 1e6:
@@ -5309,10 +5351,10 @@ def create_server(temp_dir: str) -> FastMCP:
         }
 
         scpi_type = type_map[acquisition_type]
-        scope._instr.write(f":ACQ:TYPE {scpi_type}")
+        scope._write_checked(f":ACQ:TYPE {scpi_type}")
 
         # Verify the setting
-        actual_type = scope._instr.query(":ACQ:TYPE?").strip()
+        actual_type = scope._query_checked(":ACQ:TYPE?").strip()
 
         return AcquisitionTypeResult(acquisition_type=map_acquisition_type(actual_type))
 
@@ -5326,10 +5368,10 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Note: Only applies when acquisition type is set to AVERAGE. Use with set_acquisition_type("AVERAGE").
         """
-        scope._instr.write(f":ACQ:AVER {averages}")
+        scope._write_checked(f":ACQ:AVER {averages}")
 
         # Verify the setting
-        actual_averages = int(scope._instr.query(":ACQ:AVER?"))
+        actual_averages = int(scope._query_checked(":ACQ:AVER?"))
 
         return AcquisitionAveragesResult(
             averages=actual_averages,
@@ -5349,21 +5391,21 @@ def create_server(temp_dir: str) -> FastMCP:
         Ultra Acquisition mode captures waveforms at maximum speed for anomaly detection.
         """
         # Set acquisition type to Ultra
-        scope._instr.write(":ACQ:TYPE ULTRa")
+        scope._write_checked(":ACQ:TYPE ULTRa")
 
         # Set Ultra mode
-        scope._instr.write(f":ACQ:ULTR:MODE {mode.value}")
+        scope._write_checked(f":ACQ:ULTR:MODE {mode.value}")
 
         # Set timeout
-        scope._instr.write(f":ACQ:ULTR:TIM {timeout}")
+        scope._write_checked(f":ACQ:ULTR:TIM {timeout}")
 
         # Set max frames
-        scope._instr.write(f":ACQ:ULTR:FMAX {max_frames}")
+        scope._write_checked(f":ACQ:ULTR:FMAX {max_frames}")
 
         # Verify settings
-        actual_mode_str = scope._instr.query(":ACQ:ULTR:MODE?").strip()
-        actual_timeout = float(scope._instr.query(":ACQ:ULTR:TIM?"))
-        actual_max_frames = int(scope._instr.query(":ACQ:ULTR:FMAX?"))
+        actual_mode_str = scope._query_checked(":ACQ:ULTR:MODE?").strip()
+        actual_timeout = float(scope._query_checked(":ACQ:ULTR:TIM?"))
+        actual_max_frames = int(scope._query_checked(":ACQ:ULTR:FMAX?"))
 
         # Map SCPI response to enum
         actual_mode = UltraAcquisitionMode.EDGE if actual_mode_str == "EDGE" else UltraAcquisitionMode.PULSE
@@ -5381,7 +5423,7 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Get current sample rate.
         """
-        sample_rate = float(scope._instr.query(":ACQ:SRAT?"))
+        sample_rate = float(scope._query_checked(":ACQ:SRAT?"))
 
         # Convert to human-readable format
         if sample_rate >= 1e9:
@@ -5408,7 +5450,7 @@ def create_server(temp_dir: str) -> FastMCP:
         Automatically configures vertical scale, horizontal scale, and trigger
         settings for optimal display of the input signal.
         """
-        scope._instr.write(":AUT")
+        scope._write_checked(":AUT")
 
         # Auto setup takes a moment
         time.sleep(2)
@@ -5421,7 +5463,7 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Clear the oscilloscope display.
         """
-        scope._instr.write(":CLE")
+        scope._write_checked(":CLE")
 
         return ActionResult(action=SystemAction.CLEAR_DISPLAY)
 
@@ -5435,13 +5477,13 @@ def create_server(temp_dir: str) -> FastMCP:
         including waveforms, measurements, and all visible UI elements.
         """
         # Set image format to PNG
-        scope._instr.write(":SAVE:IMAGe:FORMat PNG")
+        scope._write_checked(":SAVE:IMAGe:FORMat PNG")
 
         # Query the image data
         # Response format: TMC header + binary PNG data + terminator
         png_data = cast(
             bytes,
-            scope._instr.query_binary_values(
+            scope._query_binary_values_checked(
                 ":SAVE:IMAGe:DATA?",
                 datatype="B",  # Read as bytes
                 is_big_endian=False,
@@ -5594,27 +5636,27 @@ def create_server(temp_dir: str) -> FastMCP:
         Note: Counter must be enabled first. Units depend on mode (Hz for frequency, seconds for period, count for totalize).
         """
         # Enable/disable counter
-        scope._instr.write(f":COUN:ENAB {'ON' if enabled else 'OFF'}")
+        scope._write_checked(f":COUN:ENAB {'ON' if enabled else 'OFF'}")
 
         # Set source channel
-        scope._instr.write(f":COUN:SOUR CHAN{channel}")
+        scope._write_checked(f":COUN:SOUR CHAN{channel}")
 
         # Set mode
-        scope._instr.write(f":COUN:MODE {mode.value}")
+        scope._write_checked(f":COUN:MODE {mode.value}")
 
         # Set digit resolution
-        scope._instr.write(f":COUN:NDIG {digits}")
+        scope._write_checked(f":COUN:NDIG {digits}")
 
         # Set totalize enable (statistics)
-        scope._instr.write(f":COUN:TOT:ENAB {'ON' if totalize_enabled else 'OFF'}")
+        scope._write_checked(f":COUN:TOT:ENAB {'ON' if totalize_enabled else 'OFF'}")
 
         # Verify settings
-        actual_enabled = bool(int(scope._instr.query(":COUN:ENAB?")))
-        actual_source = scope._instr.query(":COUN:SOUR?").strip()
+        actual_enabled = bool(int(scope._query_checked(":COUN:ENAB?")))
+        actual_source = scope._query_checked(":COUN:SOUR?").strip()
         actual_channel = _parse_channel_from_scpi(actual_source)
-        actual_mode_str = scope._instr.query(":COUN:MODE?").strip()
-        actual_digits = int(scope._instr.query(":COUN:NDIG?"))
-        actual_totalize = bool(int(scope._instr.query(":COUN:TOT:ENAB?")))
+        actual_mode_str = scope._query_checked(":COUN:MODE?").strip()
+        actual_digits = int(scope._query_checked(":COUN:NDIG?"))
+        actual_totalize = bool(int(scope._query_checked(":COUN:TOT:ENAB?")))
 
         # Map SCPI response to enum
         mode_map = {
@@ -5629,7 +5671,7 @@ def create_server(temp_dir: str) -> FastMCP:
         unit = "Hz"  # Default unit
         if actual_enabled:
             try:
-                current_value = float(scope._instr.query(":COUN:CURR?"))
+                current_value = float(scope._query_checked(":COUN:CURR?"))
                 # Determine unit based on mode
                 if actual_mode == HardwareCounterMode.FREQUENCY:
                     unit = "Hz"
@@ -5660,7 +5702,7 @@ def create_server(temp_dir: str) -> FastMCP:
         Note: Counter must be enabled first. Units depend on mode (Hz for frequency, seconds for period, count for totalize).
         """
         # Get current mode to determine unit
-        mode_str = scope._instr.query(":COUN:MODE?").strip()
+        mode_str = scope._query_checked(":COUN:MODE?").strip()
         mode_map = {
             "FREQ": ("Hz", HardwareCounterMode.FREQUENCY),
             "PER": ("s", HardwareCounterMode.PERIOD),
@@ -5669,7 +5711,7 @@ def create_server(temp_dir: str) -> FastMCP:
         unit, _ = mode_map.get(mode_str[:3], ("Hz", HardwareCounterMode.FREQUENCY))
 
         # Get current reading
-        value = float(scope._instr.query(":COUN:CURR?"))
+        value = float(scope._query_checked(":COUN:CURR?"))
 
         return HardwareCounterValueResult(value=value, unit=unit)
 
@@ -5681,7 +5723,7 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Note: Only applies when counter is in statistics mode (totalize enabled).
         """
-        scope._instr.write(":COUN:TOT:CLE")
+        scope._write_checked(":COUN:TOT:CLE")
 
         return CounterTotalizeResetResult(message="Counter totalize reset")
 
