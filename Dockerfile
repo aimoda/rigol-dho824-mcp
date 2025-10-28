@@ -5,6 +5,7 @@ WORKDIR /build
 
 # Copy only package definition files first for better layer caching
 COPY pyproject.toml ./
+COPY README.md ./
 
 # Copy source code
 COPY src/ ./src/
