@@ -67,18 +67,23 @@ Create a `.mcp.json` file in your project directory (or copy from `.mcp.json.exa
         "run",
         "-i",
         "--rm",
+        "-v",
+        "/tmp/rigol-data:/tmp/rigol",
         "-e",
         "RIGOL_RESOURCE",
         "-e",
         "VISA_TIMEOUT",
         "-e",
         "RIGOL_BEEPER_ENABLED",
+        "-e",
+        "RIGOL_TEMP_DIR",
         "ghcr.io/aimoda/rigol-dho824-mcp:latest"
       ],
       "env": {
         "RIGOL_RESOURCE": "TCPIP0::192.168.1.100::inst0::INSTR",
         "VISA_TIMEOUT": "30000",
-        "RIGOL_BEEPER_ENABLED": "false"
+        "RIGOL_BEEPER_ENABLED": "false",
+        "RIGOL_TEMP_DIR": "/tmp/rigol"
       }
     }
   }
@@ -93,6 +98,43 @@ After configuring, restart Claude Code to load the MCP server.
 
 - `VISA_TIMEOUT`: Communication timeout in milliseconds (default: 30000)
 - `RIGOL_BEEPER_ENABLED`: Enable/disable oscilloscope beeper sounds (default: false)
+- `RIGOL_TEMP_DIR`: Custom directory for temporary files (waveforms, screenshots). If not set, uses system default temp directory. **Required for Docker deployments** if you need to access captured data outside the container.
+
+### Accessing Temp Files in Docker
+
+By default, temporary files (waveform captures, screenshots) are stored inside the Docker container and are inaccessible from the host system. To access these files, you must:
+
+1. **Create a directory on your host** for storing temporary files:
+   ```bash
+   mkdir -p /tmp/rigol-data
+   ```
+
+2. **Mount this directory as a volume** in your Docker configuration (see the `.mcp.json` example above):
+   ```json
+   "-v",
+   "/tmp/rigol-data:/tmp/rigol",
+   ```
+   This maps the host directory `/tmp/rigol-data` to `/tmp/rigol` inside the container.
+
+3. **Set the `RIGOL_TEMP_DIR` environment variable** to point to the mounted directory inside the container:
+   ```json
+   "RIGOL_TEMP_DIR": "/tmp/rigol"
+   ```
+
+**Important notes:**
+- The directory specified in `RIGOL_TEMP_DIR` must exist before starting the server
+- Temporary files are **not automatically cleaned up** when using a custom temp directory
+- You are responsible for manually cleaning up old waveform and screenshot files
+- Files will be organized in subdirectories like `waveform_capture_<timestamp>/` for waveforms and `screenshot_<timestamp>.png` for screenshots
+
+**Example: Manual cleanup**
+```bash
+# Remove waveform captures older than 7 days
+find /tmp/rigol-data -type d -name "waveform_capture_*" -mtime +7 -exec rm -rf {} \;
+
+# Remove screenshots older than 7 days
+find /tmp/rigol-data -type f -name "screenshot_*.png" -mtime +7 -delete
+```
 
 ### Troubleshooting
 

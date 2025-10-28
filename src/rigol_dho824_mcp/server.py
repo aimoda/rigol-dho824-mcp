@@ -5668,6 +5668,45 @@ def create_server(temp_dir: str) -> FastMCP:
     return mcp
 
 
+def _validate_temp_directory(temp_dir: str) -> None:
+    """Validate that the temp directory exists and is writable.
+
+    Args:
+        temp_dir: Path to the temporary directory to validate
+
+    Raises:
+        SystemExit: If directory doesn't exist or is not writable
+    """
+    import sys
+
+    # Check if directory exists
+    if not os.path.exists(temp_dir):
+        print(f"ERROR: RIGOL_TEMP_DIR directory does not exist: {temp_dir}", file=sys.stderr)
+        print("Please create the directory or unset RIGOL_TEMP_DIR to use system default.", file=sys.stderr)
+        sys.exit(1)
+
+    # Check if it's actually a directory
+    if not os.path.isdir(temp_dir):
+        print(f"ERROR: RIGOL_TEMP_DIR is not a directory: {temp_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    # Check if directory is writable
+    test_file = None
+    try:
+        import tempfile as tf
+        fd, test_file = tf.mkstemp(dir=temp_dir, prefix="write_test_")
+        os.close(fd)
+        os.unlink(test_file)
+    except (OSError, PermissionError) as e:
+        print(f"ERROR: RIGOL_TEMP_DIR is not writable: {temp_dir}", file=sys.stderr)
+        print(f"Permission error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: Failed to validate RIGOL_TEMP_DIR: {temp_dir}", file=sys.stderr)
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     """Run the MCP server."""
     import argparse
@@ -5690,8 +5729,14 @@ def main():
 
     args = parser.parse_args()
 
-    # Create temporary directory with automatic cleanup on exit
-    with tempfile.TemporaryDirectory(prefix="rigol_dho824_") as temp_dir:
+    # Check if user specified a custom temp directory
+    custom_temp_dir = os.getenv("RIGOL_TEMP_DIR")
+
+    if custom_temp_dir:
+        # User specified temp directory - validate and use it (no auto-cleanup)
+        _validate_temp_directory(custom_temp_dir)
+        temp_dir = custom_temp_dir
+
         # Create the server
         mcp = create_server(temp_dir)
 
@@ -5701,6 +5746,18 @@ def main():
         else:
             # Default to stdio transport
             mcp.run()
+    else:
+        # Use system default temp directory with automatic cleanup on exit
+        with tempfile.TemporaryDirectory(prefix="rigol_dho824_") as temp_dir:
+            # Create the server
+            mcp = create_server(temp_dir)
+
+            if args.http:
+                # Run with HTTP transport
+                mcp.run(transport="http", host=args.host, port=args.port, path=args.path)
+            else:
+                # Default to stdio transport
+                mcp.run()
 
 
 if __name__ == "__main__":
