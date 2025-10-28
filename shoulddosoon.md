@@ -93,36 +93,11 @@ Configure and control recorded waveform playback.
 
 ---
 
-#### 5. `export_recorded_frame`
-**SCPI:** `:RECord:WREPlay:FCURrent + :WAV:DATA?`
-
-Export specific recorded frame as waveform data.
-
-**Complete workflow:**
-```
-:RECord:WREPlay:FCURrent <frame>     # Navigate to frame
-:WAV:SOUR <channel>                  # Set source
-:WAV:MODE RAW                        # Raw mode
-:WAV:FORM WORD                       # 16-bit format
-:WAV:DATA?                           # Read data
-```
-
-**Parameters:**
-- `frame_number`: Frame to export (1 to max frames)
-- `channel`: Channel to export (1-4)
-- `local_filepath`: Local path to save JSON file
-
-**Returns:** Dictionary with file path and frame metadata
-
-**Note:** This is similar to `capture_waveform` but operates on recorded frames instead of live acquisition.
-
----
-
 ## Priority 2: Reference Waveforms
 
 Reference waveforms allow saving and comparing waveforms on-screen.
 
-#### 6. `save_reference_waveform`
+#### 5. `save_reference_waveform`
 **SCPI:** `:REFerence:SAVE <source>,<ref_slot>`
 
 Save current waveform as reference.
@@ -135,7 +110,7 @@ Save current waveform as reference.
 
 ---
 
-#### 7. `configure_reference_display`
+#### 6. `configure_reference_display`
 **SCPI:** `:REFerence:*`
 
 Configure reference waveform display.
@@ -160,7 +135,7 @@ Configure reference waveform display.
 
 ## Priority 3: System Utilities
 
-#### 8. `reset_instrument`
+#### 7. `reset_instrument`
 **SCPI:** `*RST` or `:SYSTem:RESet`
 
 Perform factory reset of oscilloscope.
@@ -171,7 +146,7 @@ Perform factory reset of oscilloscope.
 
 ---
 
-#### 9. `get_system_error`
+#### 8. `get_system_error`
 **SCPI:** `:SYSTem:ERRor[:NEXT]?`
 
 Query and clear next error from error queue.
@@ -182,7 +157,7 @@ Query and clear next error from error queue.
 
 ---
 
-#### 10. `save_setup`
+#### 9. `save_setup`
 **SCPI:** `:SAVE:SETup <filepath>`
 
 Save current oscilloscope setup to internal storage, then download via FTP.
@@ -197,7 +172,7 @@ Save current oscilloscope setup to internal storage, then download via FTP.
 
 ---
 
-#### 11. `load_setup`
+#### 10. `load_setup`
 **SCPI:** `:LOAD:SETup <filepath>`
 
 Upload setup file via FTP, then load into oscilloscope.
@@ -211,7 +186,7 @@ Upload setup file via FTP, then load into oscilloscope.
 
 ---
 
-#### 12. `set_autoset_options`
+#### 11. `set_autoset_options`
 **SCPI:** `:AUToset:*`
 
 Configure autoset behavior.
@@ -232,7 +207,7 @@ Configure autoset behavior.
 
 ## Priority 4: Display Settings
 
-#### 13. `configure_display`
+#### 12. `configure_display`
 **SCPI:** `:DISPlay:*`
 
 Configure display appearance.
@@ -255,7 +230,7 @@ Configure display appearance.
 
 ## Priority 5: XY Mode (Lissajous)
 
-#### 14. `configure_xy_mode`
+#### 13. `configure_xy_mode`
 **SCPI:** `:TIMebase:XY:*`
 
 Configure XY (Lissajous) display mode.
@@ -286,25 +261,26 @@ Configure XY (Lissajous) display mode.
 ## Summary by Category
 
 ### High Priority (Implement First)
-**Waveform Recording (5 tools):** Items 1-5
+**Waveform Recording (4 tools):** Items 1-4
 - Segmented memory capture and playback
 - Excellent for intermittent event analysis
-- Frame export and replay capabilities
+- Playback control capabilities
+- *Note: Frame export implemented in `capture_waveform` tool*
 
 ### Medium Priority
-**Reference Waveforms (2 tools):** Items 6-7
+**Reference Waveforms (2 tools):** Items 5-6
 - Save and display reference waveforms
 - Useful for comparison and quality control
 
-**System Utilities (5 tools):** Items 8-12
+**System Utilities (5 tools):** Items 7-11
 - Reset, error handling, setup save/load
 - Autoset configuration
 
 ### Lower Priority
-**Display Settings (1 tool):** Item 13
+**Display Settings (1 tool):** Item 12
 - Grid and brightness configuration
 
-**XY Mode (1 tool):** Item 14
+**XY Mode (1 tool):** Item 13
 - Lissajous/XY display for phase analysis
 
 ---
@@ -348,6 +324,8 @@ configure_hardware_counter(
 
 ---
 
-## Total: 14 Remaining Tools
+## Total: 13 Remaining Tools
 
 This represents the remaining unimplemented features after completing Priority 1 tools (advanced acquisition & channel settings, hardware counter), all protocol triggers, and bus decode tools. These focus on waveform recording, reference waveforms, system management, and display settings.
+
+**Note:** Frame export functionality has been implemented directly in the `capture_waveform` tool, which now supports exporting frames from both Waveform Recording and Ultra Acquisition modes.

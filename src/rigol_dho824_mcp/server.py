@@ -12,6 +12,7 @@ from datetime import datetime
 from enum import Enum
 from ftplib import FTP
 from typing import Optional, TypedDict, Annotated, List, Literal
+from typing_extensions import NotRequired
 import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP, Context
@@ -117,6 +118,11 @@ WidthConditionField = Annotated[str, Field(description="Width condition (GREATER
 AveragesCountField = Annotated[int, Field(description="Number of averages (2-65536)", ge=2, le=65536)]
 UltraTimeoutField = Annotated[float, Field(description="Timeout duration in seconds")]
 MaxFramesField = Annotated[int, Field(description="Maximum frames to capture")]
+
+# Frame export fields
+FrameNumberField = Annotated[int, Field(description="Specific frame number to export", ge=1)]
+FrameRangeStartField = Annotated[int, Field(description="Starting frame number (inclusive)", ge=1)]
+FrameRangeEndField = Annotated[int, Field(description="Ending frame number (inclusive)", ge=1)]
 
 # Channel-related fields
 ChannelLabelField = Annotated[str, Field(description="Custom label string (max 4 characters)", max_length=4)]
@@ -944,6 +950,8 @@ class WaveformChannelData(TypedDict):
     # Acquisition info
     sample_rate: Annotated[float, Field(description="Sample rate in Sa/s")]
     points: Annotated[int, Field(description="Number of data points")]
+    # Frame info (only present for frame exports)
+    frame_number: NotRequired[Annotated[int, Field(description="Frame number for segmented memory exports")]]
 
 
 class WaveformCaptureResult(TypedDict):
@@ -1783,9 +1791,20 @@ def create_server(temp_dir: str) -> FastMCP:
                 description="List of channels to capture (1-4)", examples=[[1], [1, 2]]
             ),
         ] = [1],
+        frame_number: Optional[FrameNumberField] = None,
+        frame_range_start: Optional[FrameRangeStartField] = None,
+        frame_range_end: Optional[FrameRangeEndField] = None,
     ) -> WaveformCaptureResult:
         """
         Capture raw waveform data from specified channels.
+
+        Supports three capture modes:
+        - Live capture (default): Captures current waveform when no frame parameters specified
+        - Single frame export: Specify frame_number to export one specific recorded frame
+        - Frame range export: Specify both frame_range_start and frame_range_end to export multiple frames
+
+        Frame export works with both Waveform Recording mode (up to 500k frames) and Ultra Acquisition mode.
+        The tool automatically detects which segmented memory system is active.
 
         Captures data in RAW mode with WORD format (16-bit) for maximum accuracy.
         Reads all available points from oscilloscope memory (up to 50M points depending on settings).
@@ -1803,6 +1822,82 @@ def create_server(temp_dir: str) -> FastMCP:
         Voltage conversion formula: voltage = (raw_value - y_origin - y_reference) * y_increment
         Time calculation formula: time = sample_index * x_increment + x_origin
         """
+        # Validate frame parameters
+        frame_params_provided = sum([
+            frame_number is not None,
+            frame_range_start is not None,
+            frame_range_end is not None,
+        ])
+
+        if frame_params_provided > 0:
+            # At least one frame parameter provided - validate combinations
+            if frame_number is not None and (frame_range_start is not None or frame_range_end is not None):
+                raise ValueError("Cannot specify both frame_number and frame_range parameters")
+
+            if (frame_range_start is None) != (frame_range_end is None):
+                raise ValueError("Must specify both frame_range_start and frame_range_end together")
+
+        # Determine frame export mode and build frame list
+        frames_to_export: List[int] = []
+        frame_mode_active = False
+        frame_system = ""  # "record" or "ultra"
+
+        if frame_number is not None:
+            frames_to_export = [frame_number]
+            frame_mode_active = True
+        elif frame_range_start is not None and frame_range_end is not None:
+            if frame_range_start > frame_range_end:
+                raise ValueError(f"frame_range_start ({frame_range_start}) must be <= frame_range_end ({frame_range_end})")
+            frames_to_export = list(range(frame_range_start, frame_range_end + 1))
+            frame_mode_active = True
+
+        # If frame export requested, detect which system is active and validate
+        if frame_mode_active:
+            # Stop acquisition first - required for frame navigation
+            scope.instrument.write(":STOP")  # type: ignore[reportAttributeAccessIssue]
+            scope.instrument.query("*OPC?")  # type: ignore[reportAttributeAccessIssue]
+
+            # Initialize max_available_frames
+            max_available_frames = 0
+
+            # Check Waveform Recording mode
+            try:
+                record_max_frames = int(scope.instrument.query(":RECord:WREPlay:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+                if record_max_frames > 0:
+                    frame_system = "record"
+                    max_available_frames = record_max_frames
+            except Exception:
+                record_max_frames = 0
+
+            # Check Ultra Acquisition mode if no recording frames found
+            if frame_system == "":
+                try:
+                    # Try to query Ultra frame end - this will work if Ultra mode has captured frames
+                    ultra_end_frame = int(scope.instrument.query(":NAVigate:FRAMe:END:FRAMe?"))  # type: ignore[reportAttributeAccessIssue]
+                    if ultra_end_frame > 0:
+                        frame_system = "ultra"
+                        max_available_frames = ultra_end_frame
+                except Exception:
+                    pass
+
+            # Validate frame system detection
+            if frame_system == "":
+                raise ValueError(
+                    "No frame data available. Enable Waveform Recording mode or Ultra Acquisition mode and capture frames first."
+                )
+
+            # Validate requested frames are within available range
+            max_requested = max(frames_to_export)
+            if max_requested > max_available_frames:
+                raise ValueError(
+                    f"Requested frame {max_requested} exceeds available frames (max: {max_available_frames}) in {frame_system} mode"
+                )
+
+            await ctx.report_progress(
+                progress=0.0,
+                message=f"Frame export mode: {frame_system}, exporting {len(frames_to_export)} frame(s)",
+            )
+
         # Generate unique capture ID based on timestamp
         capture_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
             :-3
@@ -1813,206 +1908,245 @@ def create_server(temp_dir: str) -> FastMCP:
 
         results = []
 
-        # Stop acquisition once for all channels
-        scope.instrument.write(":STOP")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.query("*OPC?")  # type: ignore[reportAttributeAccessIssue]  # Wait for stop to complete
+        # If not in frame export mode, stop acquisition once for all channels
+        if not frame_mode_active:
+            scope.instrument.write(":STOP")  # type: ignore[reportAttributeAccessIssue]
+            scope.instrument.query("*OPC?")  # type: ignore[reportAttributeAccessIssue]  # Wait for stop to complete
 
-        for channel_idx, channel in enumerate(channels):
-            # Check if channel is enabled
-            channel_enabled = int(scope.instrument.query(f":CHAN{channel}:DISP?"))  # type: ignore[reportAttributeAccessIssue]
-            if not channel_enabled:
+        # Build iteration list: frames if exporting frames, otherwise single None value
+        frames_iteration = frames_to_export if frame_mode_active else [None]
+        total_iterations = len(frames_iteration) * len(channels)
+        current_iteration = 0
+
+        for frame_idx, frame in enumerate(frames_iteration):
+            # Navigate to frame if in frame export mode
+            if frame is not None:
+                if frame_system == "record":
+                    # Waveform Recording mode navigation
+                    scope.instrument.write(f":RECord:WREPlay:FCURrent {frame}")  # type: ignore[reportAttributeAccessIssue]
+                elif frame_system == "ultra":
+                    # Ultra Acquisition mode navigation
+                    scope.instrument.write(":NAVigate:MODE FRAMe")  # type: ignore[reportAttributeAccessIssue]
+                    scope.instrument.write(f":NAVigate:FRAMe:STARt:FRAMe {frame}")  # type: ignore[reportAttributeAccessIssue]
+
                 await ctx.report_progress(
-                    progress=(channel_idx + 1) / len(channels),
-                    message=f"Channel {channel} is disabled, skipping",
+                    progress=current_iteration / total_iterations,
+                    message=f"Navigated to frame {frame}",
                 )
-                continue
 
-            try:
-                # Set source channel
-                scope.instrument.write(f":WAV:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+            for channel_idx, channel in enumerate(channels):
+                current_iteration += 1
+                # Check if channel is enabled
+                channel_enabled = int(scope.instrument.query(f":CHAN{channel}:DISP?"))  # type: ignore[reportAttributeAccessIssue]
+                if not channel_enabled:
+                    await ctx.report_progress(
+                        progress=current_iteration / total_iterations,
+                        message=f"Channel {channel} is disabled, skipping",
+                    )
+                    continue
 
-                # Configure for RAW mode with WORD format (16-bit)
-                scope.instrument.write(":WAV:MODE RAW")  # type: ignore[reportAttributeAccessIssue]
-                scope.instrument.write(":WAV:FORM WORD")  # type: ignore[reportAttributeAccessIssue]
+                try:
+                    # Set source channel
+                    scope.instrument.write(f":WAV:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
 
-                # Query memory depth to determine available points
-                memory_depth = float(scope.instrument.query(":ACQ:MDEP?"))  # type: ignore[reportAttributeAccessIssue]
-                max_points = int(memory_depth)
+                    # Configure for RAW mode with WORD format (16-bit)
+                    scope.instrument.write(":WAV:MODE RAW")  # type: ignore[reportAttributeAccessIssue]
+                    scope.instrument.write(":WAV:FORM WORD")  # type: ignore[reportAttributeAccessIssue]
 
-                # Adjust timeout based on memory depth
-                # Estimate: 100ms per 100k points + 10s buffer
-                if memory_depth > 1000000:  # >1M points
-                    new_timeout = int((memory_depth / 100000) * 100 + 10000)
-                    scope.instrument.timeout = new_timeout  # type: ignore[reportAttributeAccessIssue]
+                    # Query memory depth to determine available points
+                    memory_depth = float(scope.instrument.query(":ACQ:MDEP?"))  # type: ignore[reportAttributeAccessIssue]
+                    max_points = int(memory_depth)
 
-                # Query waveform parameters for conversion (before data transfer)
-                y_increment = float(scope.instrument.query(":WAV:YINC?"))  # type: ignore[reportAttributeAccessIssue]
-                y_origin = float(scope.instrument.query(":WAV:YOR?"))  # type: ignore[reportAttributeAccessIssue]
-                y_reference = float(scope.instrument.query(":WAV:YREF?"))  # type: ignore[reportAttributeAccessIssue]
-                x_increment = float(scope.instrument.query(":WAV:XINC?"))  # type: ignore[reportAttributeAccessIssue]
-                x_origin = float(scope.instrument.query(":WAV:XOR?"))  # type: ignore[reportAttributeAccessIssue]
+                    # Adjust timeout based on memory depth
+                    # Estimate: 100ms per 100k points + 10s buffer
+                    if memory_depth > 1000000:  # >1M points
+                        new_timeout = int((memory_depth / 100000) * 100 + 10000)
+                        scope.instrument.timeout = new_timeout  # type: ignore[reportAttributeAccessIssue]
 
-                # Query channel settings
-                vertical_scale = float(scope.instrument.query(f":CHAN{channel}:SCAL?"))  # type: ignore[reportAttributeAccessIssue]
-                vertical_offset = float(scope.instrument.query(f":CHAN{channel}:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
-                probe_ratio = float(scope.instrument.query(f":CHAN{channel}:PROB?"))  # type: ignore[reportAttributeAccessIssue]
+                    # Query waveform parameters for conversion (before data transfer)
+                    y_increment = float(scope.instrument.query(":WAV:YINC?"))  # type: ignore[reportAttributeAccessIssue]
+                    y_origin = float(scope.instrument.query(":WAV:YOR?"))  # type: ignore[reportAttributeAccessIssue]
+                    y_reference = float(scope.instrument.query(":WAV:YREF?"))  # type: ignore[reportAttributeAccessIssue]
+                    x_increment = float(scope.instrument.query(":WAV:XINC?"))  # type: ignore[reportAttributeAccessIssue]
+                    x_origin = float(scope.instrument.query(":WAV:XOR?"))  # type: ignore[reportAttributeAccessIssue]
 
-                # Query sample rate
-                sample_rate = float(scope.instrument.query(":ACQ:SRAT?"))  # type: ignore[reportAttributeAccessIssue]
+                    # Query channel settings
+                    vertical_scale = float(scope.instrument.query(f":CHAN{channel}:SCAL?"))  # type: ignore[reportAttributeAccessIssue]
+                    vertical_offset = float(scope.instrument.query(f":CHAN{channel}:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
+                    probe_ratio = float(scope.instrument.query(f":CHAN{channel}:PROB?"))  # type: ignore[reportAttributeAccessIssue]
 
-                # Chunked reading for large data
-                chunk_size = 10000  # 10k points per chunk
-                raw_data = []
+                    # Query sample rate
+                    sample_rate = float(scope.instrument.query(":ACQ:SRAT?"))  # type: ignore[reportAttributeAccessIssue]
 
-                if max_points > chunk_size:
-                    # Use chunked reading with progress reporting
-                    num_chunks = (max_points + chunk_size - 1) // chunk_size
+                    # Chunked reading for large data
+                    chunk_size = 10000  # 10k points per chunk
+                    raw_data = []
 
-                    for chunk_idx in range(num_chunks):
-                        start = chunk_idx * chunk_size + 1
-                        end = min(start + chunk_size - 1, max_points)
+                    if max_points > chunk_size:
+                        # Use chunked reading with progress reporting
+                        num_chunks = (max_points + chunk_size - 1) // chunk_size
 
-                        # Report progress
-                        base_progress = channel_idx / len(channels)
-                        chunk_progress = (chunk_idx / num_chunks) / len(channels)
+                        for chunk_idx in range(num_chunks):
+                            start = chunk_idx * chunk_size + 1
+                            end = min(start + chunk_size - 1, max_points)
+
+                            # Report progress
+                            base_progress = (current_iteration - 1) / total_iterations
+                            chunk_progress = (chunk_idx / num_chunks) / total_iterations
+                            frame_info = f"Frame {frame}, " if frame is not None else ""
+                            await ctx.report_progress(
+                                progress=base_progress + chunk_progress,
+                                message=f"{frame_info}Channel {channel}: Reading points {start:,} to {end:,} of {max_points:,}",
+                            )
+
+                            # Set chunk range
+                            scope.instrument.write(f":WAV:STAR {start}")  # type: ignore[reportAttributeAccessIssue]
+                            scope.instrument.write(f":WAV:STOP {end}")  # type: ignore[reportAttributeAccessIssue]
+
+                            # Read chunk
+                            chunk_data = scope.instrument.query_binary_values(  # type: ignore[reportAttributeAccessIssue]
+                                ":WAV:DATA?",
+                                datatype="H",  # Unsigned 16-bit
+                                is_big_endian=False,
+                            )
+                            raw_data.extend(chunk_data)
+                    else:
+                        # Small data, read all at once
+                        frame_info = f"Frame {frame}, " if frame is not None else ""
                         await ctx.report_progress(
-                            progress=base_progress + chunk_progress,
-                            message=f"Channel {channel}: Reading points {start:,} to {end:,} of {max_points:,}",
+                            progress=(current_iteration - 0.5) / total_iterations,
+                            message=f"{frame_info}Channel {channel}: Reading {max_points:,} points",
                         )
 
-                        # Set chunk range
-                        scope.instrument.write(f":WAV:STAR {start}")  # type: ignore[reportAttributeAccessIssue]
-                        scope.instrument.write(f":WAV:STOP {end}")  # type: ignore[reportAttributeAccessIssue]
+                        scope.instrument.write(":WAV:STAR 1")  # type: ignore[reportAttributeAccessIssue]
+                        scope.instrument.write(f":WAV:STOP {max_points}")  # type: ignore[reportAttributeAccessIssue]
 
-                        # Read chunk
-                        chunk_data = scope.instrument.query_binary_values(  # type: ignore[reportAttributeAccessIssue]
+                        raw_data = scope.instrument.query_binary_values(  # type: ignore[reportAttributeAccessIssue]
                             ":WAV:DATA?",
                             datatype="H",  # Unsigned 16-bit
                             is_big_endian=False,
                         )
-                        raw_data.extend(chunk_data)
-                else:
-                    # Small data, read all at once
+
+                    # Check for ADC saturation (65535 is max value for 16-bit unsigned)
+                    truncated = bool(np.max(raw_data) == 65535) if raw_data else False
+
+                    frame_info = f"Frame {frame}, " if frame is not None else ""
                     await ctx.report_progress(
-                        progress=(channel_idx + 0.5) / len(channels),
-                        message=f"Channel {channel}: Reading {max_points:,} points",
+                        progress=current_iteration / total_iterations,
+                        message=f"{frame_info}Channel {channel}: Completed ({len(raw_data):,} points)",
                     )
 
-                    scope.instrument.write(":WAV:STAR 1")  # type: ignore[reportAttributeAccessIssue]
-                    scope.instrument.write(f":WAV:STOP {max_points}")  # type: ignore[reportAttributeAccessIssue]
+                    # Create waveform data structure
+                    waveform_data = {
+                        "channel": channel,
+                        "truncated": truncated,
+                        "y_increment": y_increment,
+                        "y_origin": y_origin,
+                        "y_reference": y_reference,
+                        "x_increment": x_increment,
+                        "x_origin": x_origin,
+                        "vertical_scale": vertical_scale,
+                        "vertical_offset": vertical_offset,
+                        "probe_ratio": probe_ratio,
+                        "sample_rate": sample_rate,
+                        "points": len(raw_data),
+                        "raw_data": raw_data,  # List of raw ADC values
+                    }
+                    if frame is not None:
+                        waveform_data["frame_number"] = frame
 
-                    raw_data = scope.instrument.query_binary_values(  # type: ignore[reportAttributeAccessIssue]
-                        ":WAV:DATA?",
-                        datatype="H",  # Unsigned 16-bit
-                        is_big_endian=False,
+                    # Save waveform data to JSON file in capture directory
+                    # Include frame number in filename if exporting frames
+                    if frame is not None:
+                        file_path = os.path.join(capture_dir, f"ch{channel}_frame{frame}.json")
+                    else:
+                        file_path = os.path.join(capture_dir, f"ch{channel}.json")
+
+                    with open(file_path, 'w') as f:
+                        json.dump(waveform_data, f, indent=2)
+
+                    # Return metadata with file path
+                    result_data: WaveformChannelData = {
+                        "channel": channel,
+                        "truncated": truncated,
+                        "y_increment": y_increment,
+                        "y_origin": y_origin,
+                        "y_reference": y_reference,
+                        "x_increment": x_increment,
+                        "x_origin": x_origin,
+                        "vertical_scale": vertical_scale,
+                        "vertical_offset": vertical_offset,
+                        "probe_ratio": probe_ratio,
+                        "sample_rate": sample_rate,
+                        "points": len(raw_data),
+                        "file_path": file_path,
+                    }
+                    if frame is not None:
+                        result_data["frame_number"] = frame
+
+                    results.append(result_data)
+
+                except Exception as e:
+                    frame_info = f"Frame {frame}, " if frame is not None else ""
+                    await ctx.report_progress(
+                        progress=current_iteration / total_iterations,
+                        message=f"{frame_info}Channel {channel}: Error - {str(e)}",
                     )
+                    continue
 
-                # Check for ADC saturation (65535 is max value for 16-bit unsigned)
-                truncated = bool(np.max(raw_data) == 65535) if raw_data else False
-
-                await ctx.report_progress(
-                    progress=(channel_idx + 1) / len(channels),
-                    message=f"Channel {channel}: Completed ({len(raw_data):,} points)",
-                )
-
-                # Create waveform data structure
-                waveform_data = {
-                    "channel": channel,
-                    "truncated": truncated,
-                    "y_increment": y_increment,
-                    "y_origin": y_origin,
-                    "y_reference": y_reference,
-                    "x_increment": x_increment,
-                    "x_origin": x_origin,
-                    "vertical_scale": vertical_scale,
-                    "vertical_offset": vertical_offset,
-                    "probe_ratio": probe_ratio,
-                    "sample_rate": sample_rate,
-                    "points": len(raw_data),
-                    "raw_data": raw_data,  # List of raw ADC values
-                }
-
-                # Save waveform data to JSON file in capture directory
-                file_path = os.path.join(capture_dir, f"ch{channel}.json")
-                with open(file_path, 'w') as f:
-                    json.dump(waveform_data, f, indent=2)
-
-                # Return metadata with file path
-                results.append(
-                    WaveformChannelData(
-                        channel=channel,
-                        truncated=truncated,
-                        y_increment=y_increment,
-                        y_origin=y_origin,
-                        y_reference=y_reference,
-                        x_increment=x_increment,
-                        x_origin=x_origin,
-                        vertical_scale=vertical_scale,
-                        vertical_offset=vertical_offset,
-                        probe_ratio=probe_ratio,
-                        sample_rate=sample_rate,
-                        points=len(raw_data),
-                        file_path=file_path,
-                    )
-                )
-            except Exception as e:
-                await ctx.report_progress(
-                    progress=(channel_idx + 1) / len(channels),
-                    message=f"Channel {channel}: Error - {str(e)}",
-                )
-                continue
-
-        # Capture WFM file for future-proofing and scientific accuracy
+        # Capture WFM file for future-proofing and scientific accuracy (live captures only)
         # WFM contains all enabled channels in a single file
-        # Generate random 8-char lowercase hex filename to avoid overwriting
-        wfm_filename = f"{os.urandom(4).hex()}.wfm"
-        wfm_scope_path = f"C:/{wfm_filename}"
-        wfm_local_path = os.path.join(capture_dir, "data.wfm")
         wfm_saved_path: Optional[str] = None
 
-        # Try to save and download WFM via FTP (gracefully skip if FTP unavailable)
-        try:
-            await ctx.report_progress(
-                progress=1.0, message="Saving WFM file on scope..."
-            )
+        if not frame_mode_active:
+            # Generate random 8-char lowercase hex filename to avoid overwriting
+            wfm_filename = f"{os.urandom(4).hex()}.wfm"
+            wfm_scope_path = f"C:/{wfm_filename}"
+            wfm_local_path = os.path.join(capture_dir, "data.wfm")
 
-            # Enable file overwriting
-            scope.instrument.write(":SAVE:OVER ON")  # type: ignore[reportAttributeAccessIssue]
-
-            # Save memory waveform to scope
-            scope.instrument.write(f":SAVE:MEMory:WAVeform {wfm_scope_path}")  # type: ignore[reportAttributeAccessIssue]
-            time.sleep(5)  # Wait for save to complete
-
-            # Check save status
-            scope.instrument.query(":SAVE:STATus?")  # type: ignore[reportAttributeAccessIssue]
-
-            # Try to download via FTP
-            ip_address = scope.extract_ip_from_resource()
-            if ip_address:
+            # Try to save and download WFM via FTP (gracefully skip if FTP unavailable)
+            try:
                 await ctx.report_progress(
-                    progress=1.0, message="Downloading WFM file via FTP..."
+                    progress=1.0, message="Saving WFM file on scope..."
                 )
-                if scope.download_file_via_ftp(ip_address, wfm_filename, wfm_local_path):
-                    wfm_saved_path = wfm_local_path
+
+                # Enable file overwriting
+                scope.instrument.write(":SAVE:OVER ON")  # type: ignore[reportAttributeAccessIssue]
+
+                # Save memory waveform to scope
+                scope.instrument.write(f":SAVE:MEMory:WAVeform {wfm_scope_path}")  # type: ignore[reportAttributeAccessIssue]
+                time.sleep(5)  # Wait for save to complete
+
+                # Check save status
+                scope.instrument.query(":SAVE:STATus?")  # type: ignore[reportAttributeAccessIssue]
+
+                # Try to download via FTP
+                ip_address = scope.extract_ip_from_resource()
+                if ip_address:
                     await ctx.report_progress(
-                        progress=1.0, message=f"WFM file saved: {wfm_local_path}"
+                        progress=1.0, message="Downloading WFM file via FTP..."
                     )
+                    if scope.download_file_via_ftp(ip_address, wfm_filename, wfm_local_path):
+                        wfm_saved_path = wfm_local_path
+                        await ctx.report_progress(
+                            progress=1.0, message=f"WFM file saved: {wfm_local_path}"
+                        )
+                    else:
+                        await ctx.report_progress(
+                            progress=1.0,
+                            message="WFM download failed (FTP unavailable) - skipping",
+                        )
                 else:
                     await ctx.report_progress(
                         progress=1.0,
-                        message="WFM download failed (FTP unavailable) - skipping",
+                        message="WFM download skipped (not a network connection)",
                     )
-            else:
-                await ctx.report_progress(
-                    progress=1.0,
-                    message="WFM download skipped (not a network connection)",
-                )
 
-        except Exception as e:
-            # WFM capture failed - report but don't fail the whole operation
-            await ctx.report_progress(
-                progress=1.0, message=f"WFM capture skipped: {str(e)}"
-            )
+            except Exception as e:
+                # WFM capture failed - report but don't fail the whole operation
+                await ctx.report_progress(
+                    progress=1.0, message=f"WFM capture skipped: {str(e)}"
+                )
 
         return WaveformCaptureResult(channels=results, wfm_file_path=wfm_saved_path)
 
