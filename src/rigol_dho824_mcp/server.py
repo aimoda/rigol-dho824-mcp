@@ -2719,6 +2719,27 @@ def create_server(temp_dir: str) -> FastMCP:
             max_frames=max_frames,
         )
 
+    @mcp.tool
+    @with_scope_connection
+    async def get_recording_status() -> WaveformRecordingResult:
+        """
+        Query current recording status and configuration.
+        """
+        # Query current state
+        enabled = bool(int(scope.instrument.query(":RECord:WRECord:ENABle?")))  # type: ignore[reportAttributeAccessIssue]
+        operation_str = scope.instrument.query(":RECord:WRECord:OPERate?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_frames = int(scope.instrument.query(":RECord:WRECord:FRAMes?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_interval = float(scope.instrument.query(":RECord:WRECord:FINTerval?"))  # type: ignore[reportAttributeAccessIssue]
+        max_frames = int(scope.instrument.query(":RECord:WRECord:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+
+        return WaveformRecordingResult(
+            enabled=enabled,
+            operation=RecordingOperation(operation_str),
+            frames=actual_frames,
+            frame_interval=actual_interval,
+            max_frames=max_frames,
+        )
+
     # === TRIGGER CONFIGURATION TOOLS ===
 
     @mcp.tool
