@@ -2083,10 +2083,13 @@ def create_server(temp_dir: str) -> FastMCP:
 
         results = []
 
-        # If not in frame export mode, stop acquisition once for all channels
-        if not frame_mode_active:
-            scope._write_checked(":STOP")
-            scope._query_checked("*OPC?")  # Wait for stop to complete
+        # Stop acquisition (required for both normal capture and frame navigation)
+        scope._write_checked(":STOP")
+        scope._query_checked("*OPC?")  # Wait for stop to complete
+
+        # Enable navigation if in frame export mode (required for Ultra Acquisition)
+        if frame_mode_active and frame_system == "ultra":
+            scope._write_checked(":NAVigate:ENABle ON")
 
         # Build iteration list: frames if exporting frames, otherwise single None value
         frames_iteration = frames_to_export if frame_mode_active else [None]
@@ -2101,7 +2104,8 @@ def create_server(temp_dir: str) -> FastMCP:
                     scope._write_checked(f":RECord:WREPlay:FCURrent {frame}")
                 elif frame_system == "ultra":
                     # Ultra Acquisition mode navigation
-                    scope._write_checked(":NAVigate:MODE FRAMe")
+                    # Note: When UltraAcquire is enabled, navigation mode is automatically
+                    # set to FRAMe and cannot be modified, so we don't set :NAVigate:MODE
                     scope._write_checked(f":NAVigate:FRAMe:STARt:FRAMe {frame}")
 
                 await ctx.report_progress(
