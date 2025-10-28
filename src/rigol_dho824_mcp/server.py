@@ -1678,7 +1678,7 @@ def create_server(temp_dir: str) -> FastMCP:
 
     # Get configuration from environment
     resource_string = os.getenv("RIGOL_RESOURCE", "")
-    timeout = int(os.getenv("VISA_TIMEOUT", "5000"))
+    timeout = int(os.getenv("VISA_TIMEOUT", "30000"))
     beeper_enabled = os.getenv("RIGOL_BEEPER_ENABLED", "false").lower() in ("true", "1", "yes")
 
     # Create MCP server
