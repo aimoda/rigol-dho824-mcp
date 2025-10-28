@@ -11,13 +11,14 @@ import json
 from datetime import datetime
 from enum import Enum
 from ftplib import FTP
-from typing import Optional, TypedDict, Annotated, List, Literal
+from typing import Optional, TypedDict, Annotated, List, Literal, cast
 from typing_extensions import NotRequired
 import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP, Context
 from dotenv import load_dotenv
 import pyvisa
+import pyvisa.resources
 
 
 # === ENUMS FOR CONSTRAINED VALUES ===
@@ -1375,11 +1376,25 @@ class RigolDHO824:
             timeout: Communication timeout in milliseconds
         """
         self.rm = pyvisa.ResourceManager()
-        self.instrument = None
+        self.instrument: Optional[pyvisa.resources.MessageBasedResource] = None
         self.resource_string = resource_string
         self.timeout = timeout
         self._identity = None
         self.lock = asyncio.Lock()
+
+    @property
+    def _instr(self) -> pyvisa.resources.MessageBasedResource:
+        """
+        Get the instrument resource, asserting it is connected.
+
+        This property allows type-safe access to the instrument without
+        needing type: ignore comments everywhere.
+
+        Raises:
+            AssertionError: If instrument is not connected
+        """
+        assert self.instrument is not None, "Instrument not connected"
+        return self.instrument
 
     def connect(self) -> bool:
         """
@@ -1392,8 +1407,8 @@ class RigolDHO824:
         if self.instrument is not None:
             try:
                 # Test if connection is still alive with a simple query
-                self.instrument.query("*OPC?")  # type: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
-                # self.instrument.write('*OPC')
+                self._instr.query("*OPC?")
+                # self._instr.write('*OPC')
                 return True
             except:
                 # Connection is dead, proceed to reconnect
@@ -1404,9 +1419,12 @@ class RigolDHO824:
         try:
             if self.resource_string:
                 # Use provided resource string
-                self.instrument = self.rm.open_resource(
-                    self.resource_string,
-                    access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
+                self.instrument = cast(
+                    pyvisa.resources.MessageBasedResource,
+                    self.rm.open_resource(
+                        self.resource_string,
+                        access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
+                    ),
                 )
             else:
                 # Auto-discover Rigol oscilloscope
@@ -1419,25 +1437,28 @@ class RigolDHO824:
                     return False
 
                 # Try to connect to first Rigol device found
-                self.instrument = self.rm.open_resource(
-                    rigol_resources[0],
-                    access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
+                self.instrument = cast(
+                    pyvisa.resources.MessageBasedResource,
+                    self.rm.open_resource(
+                        rigol_resources[0],
+                        access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
+                    ),
                 )
 
-            self.instrument.timeout = self.timeout  # type: ignore[reportAttributeAccessIssue]
+            self._instr.timeout = self.timeout
 
             # Set proper termination characters for SCPI communication
-            self.instrument.read_termination = "\n"  # type: ignore[reportAttributeAccessIssue]
-            self.instrument.write_termination = "\n"  # type: ignore[reportAttributeAccessIssue]
+            self._instr.read_termination = "\n"
+            self._instr.write_termination = "\n"
 
             # Clear the instrument's input and output buffers
-            # self.instrument.clear()
+            # self._instr.clear()
 
             # Ensure synchronization - wait for all operations to complete
-            self.instrument.write("*OPC")  # type: ignore[reportAttributeAccessIssue]
+            self._instr.write("*OPC")
 
             # Test connection and cache identity
-            self._identity = self.instrument.query("*IDN?").strip()  # type: ignore[reportAttributeAccessIssue]
+            self._identity = self._instr.query("*IDN?").strip()
 
             return True
 
@@ -1465,7 +1486,7 @@ class RigolDHO824:
 
         if self._identity is None:
             try:
-                self._identity = self.instrument.query("*IDN?").strip()  # type: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+                self._identity = self._instr.query("*IDN?").strip()
             except:
                 return None
 
@@ -1577,11 +1598,11 @@ class RigolDHO824:
     def dvm_enable(self, enabled: bool) -> None:
         """Enable or disable the Digital Voltmeter."""
         cmd = f":DVM:ENABle {'ON' if enabled else 'OFF'}"
-        self.instrument.write(cmd)  # type: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        self._instr.write(cmd)
 
     def dvm_is_enabled(self) -> bool:
         """Query if DVM is enabled."""
-        response = self.instrument.query(":DVM:ENABle?")  # type: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        response = self._instr.query(":DVM:ENABle?")
         return response.strip() == "1"
 
     def dvm_set_source(self, channel: int) -> None:
@@ -1589,7 +1610,7 @@ class RigolDHO824:
         if channel not in [1, 2, 3, 4]:
             raise ValueError(f"Channel must be 1-4, got {channel}")
         cmd = f":DVM:SOURce CHANnel{channel}"
-        self.instrument.write(cmd)  # type: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        self._instr.write(cmd)
 
     def dvm_get_source(self) -> str:
         """Query DVM source channel.
@@ -1597,17 +1618,17 @@ class RigolDHO824:
         Returns:
             SCPI channel name (e.g., 'CHAN1', 'CHAN2')
         """
-        response = self.instrument.query(":DVM:SOURce?")  # type: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        response = self._instr.query(":DVM:SOURce?")
         return response.strip()
 
     def dvm_set_mode(self, mode: DVMMode) -> None:
         """Set DVM measurement mode."""
         cmd = f":DVM:MODE {mode.value}"
-        self.instrument.write(cmd)  # type: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        self._instr.write(cmd)
 
     def dvm_get_mode(self) -> DVMMode:
         """Query DVM measurement mode."""
-        response = self.instrument.query(":DVM:MODE?")  # type: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        response = self._instr.query(":DVM:MODE?")
         mode_str = response.strip()
         return DVMMode(mode_str)
 
@@ -1617,7 +1638,7 @@ class RigolDHO824:
         Returns:
             Voltage reading in volts
         """
-        response = self.instrument.query(":DVM:CURRent?")  # type: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        response = self._instr.query(":DVM:CURRent?")
         return float(response.strip())
 
 
@@ -1665,16 +1686,16 @@ def create_server(temp_dir: str) -> FastMCP:
                         "Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
                     )
                 # Lock panel and optionally enable beeper during remote operation
-                scope.instrument.write(":SYSTem:LOCKed ON")  # type: ignore[reportAttributeAccessIssue]
+                scope._instr.write(":SYSTem:LOCKed ON")
                 if beeper_enabled:
-                    scope.instrument.write(":SYSTem:BEEPer ON")  # type: ignore[reportAttributeAccessIssue]
+                    scope._instr.write(":SYSTem:BEEPer ON")
                 try:
                     result = await func(*args, **kwargs)
 
                     # Check for SCPI errors after user function completes
                     errors = []
                     for i in range(100):
-                        error_response = scope.instrument.query(":SYSTem:ERRor?").strip()  # type: ignore[reportAttributeAccessIssue]
+                        error_response = scope._instr.query(":SYSTem:ERRor?").strip()
                         if error_response == '0,"No error"':
                             break
                         errors.append(error_response)
@@ -1690,8 +1711,8 @@ def create_server(temp_dir: str) -> FastMCP:
                 finally:
                     # Restore panel control and disable beeper before disconnect
                     if beeper_enabled:
-                        scope.instrument.write(":SYSTem:BEEPer OFF")  # type: ignore[reportAttributeAccessIssue]
-                    scope.instrument.write(":SYSTem:LOCKed OFF")  # type: ignore[reportAttributeAccessIssue]
+                        scope._instr.write(":SYSTem:BEEPer OFF")
+                    scope._instr.write(":SYSTem:LOCKed OFF")
                     scope.disconnect()
 
         return wrapper
@@ -1875,15 +1896,15 @@ def create_server(temp_dir: str) -> FastMCP:
         # If frame export requested, detect which system is active and validate
         if frame_mode_active:
             # Stop acquisition first - required for frame navigation
-            scope.instrument.write(":STOP")  # type: ignore[reportAttributeAccessIssue]
-            scope.instrument.query("*OPC?")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(":STOP")
+            scope._instr.query("*OPC?")
 
             # Initialize max_available_frames
             max_available_frames = 0
 
             # Check Waveform Recording mode
             try:
-                record_max_frames = int(scope.instrument.query(":RECord:WREPlay:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+                record_max_frames = int(scope._instr.query(":RECord:WREPlay:FMAX?"))
                 if record_max_frames > 0:
                     frame_system = "record"
                     max_available_frames = record_max_frames
@@ -1894,7 +1915,7 @@ def create_server(temp_dir: str) -> FastMCP:
             if frame_system == "":
                 try:
                     # Try to query Ultra frame end - this will work if Ultra mode has captured frames
-                    ultra_end_frame = int(scope.instrument.query(":NAVigate:FRAMe:END:FRAMe?"))  # type: ignore[reportAttributeAccessIssue]
+                    ultra_end_frame = int(scope._instr.query(":NAVigate:FRAMe:END:FRAMe?"))
                     if ultra_end_frame > 0:
                         frame_system = "ultra"
                         max_available_frames = ultra_end_frame
@@ -1931,8 +1952,8 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # If not in frame export mode, stop acquisition once for all channels
         if not frame_mode_active:
-            scope.instrument.write(":STOP")  # type: ignore[reportAttributeAccessIssue]
-            scope.instrument.query("*OPC?")  # type: ignore[reportAttributeAccessIssue]  # Wait for stop to complete
+            scope._instr.write(":STOP")
+            scope._instr.query("*OPC?")  # Wait for stop to complete
 
         # Build iteration list: frames if exporting frames, otherwise single None value
         frames_iteration = frames_to_export if frame_mode_active else [None]
@@ -1944,11 +1965,11 @@ def create_server(temp_dir: str) -> FastMCP:
             if frame is not None:
                 if frame_system == "record":
                     # Waveform Recording mode navigation
-                    scope.instrument.write(f":RECord:WREPlay:FCURrent {frame}")  # type: ignore[reportAttributeAccessIssue]
+                    scope._instr.write(f":RECord:WREPlay:FCURrent {frame}")
                 elif frame_system == "ultra":
                     # Ultra Acquisition mode navigation
-                    scope.instrument.write(":NAVigate:MODE FRAMe")  # type: ignore[reportAttributeAccessIssue]
-                    scope.instrument.write(f":NAVigate:FRAMe:STARt:FRAMe {frame}")  # type: ignore[reportAttributeAccessIssue]
+                    scope._instr.write(":NAVigate:MODE FRAMe")
+                    scope._instr.write(f":NAVigate:FRAMe:STARt:FRAMe {frame}")
 
                 await ctx.report_progress(
                     progress=current_iteration / total_iterations,
@@ -1958,7 +1979,7 @@ def create_server(temp_dir: str) -> FastMCP:
             for channel_idx, channel in enumerate(channels):
                 current_iteration += 1
                 # Check if channel is enabled
-                channel_enabled = int(scope.instrument.query(f":CHAN{channel}:DISP?"))  # type: ignore[reportAttributeAccessIssue]
+                channel_enabled = int(scope._instr.query(f":CHAN{channel}:DISP?"))
                 if not channel_enabled:
                     await ctx.report_progress(
                         progress=current_iteration / total_iterations,
@@ -1968,36 +1989,36 @@ def create_server(temp_dir: str) -> FastMCP:
 
                 try:
                     # Set source channel
-                    scope.instrument.write(f":WAV:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+                    scope._instr.write(f":WAV:SOUR CHAN{channel}")
 
                     # Configure for RAW mode with WORD format (16-bit)
-                    scope.instrument.write(":WAV:MODE RAW")  # type: ignore[reportAttributeAccessIssue]
-                    scope.instrument.write(":WAV:FORM WORD")  # type: ignore[reportAttributeAccessIssue]
+                    scope._instr.write(":WAV:MODE RAW")
+                    scope._instr.write(":WAV:FORM WORD")
 
                     # Query memory depth to determine available points
-                    memory_depth = float(scope.instrument.query(":ACQ:MDEP?"))  # type: ignore[reportAttributeAccessIssue]
+                    memory_depth = float(scope._instr.query(":ACQ:MDEP?"))
                     max_points = int(memory_depth)
 
                     # Adjust timeout based on memory depth
                     # Estimate: 100ms per 100k points + 10s buffer
                     if memory_depth > 1000000:  # >1M points
                         new_timeout = int((memory_depth / 100000) * 100 + 10000)
-                        scope.instrument.timeout = new_timeout  # type: ignore[reportAttributeAccessIssue]
+                        scope._instr.timeout = new_timeout
 
                     # Query waveform parameters for conversion (before data transfer)
-                    y_increment = float(scope.instrument.query(":WAV:YINC?"))  # type: ignore[reportAttributeAccessIssue]
-                    y_origin = float(scope.instrument.query(":WAV:YOR?"))  # type: ignore[reportAttributeAccessIssue]
-                    y_reference = float(scope.instrument.query(":WAV:YREF?"))  # type: ignore[reportAttributeAccessIssue]
-                    x_increment = float(scope.instrument.query(":WAV:XINC?"))  # type: ignore[reportAttributeAccessIssue]
-                    x_origin = float(scope.instrument.query(":WAV:XOR?"))  # type: ignore[reportAttributeAccessIssue]
+                    y_increment = float(scope._instr.query(":WAV:YINC?"))
+                    y_origin = float(scope._instr.query(":WAV:YOR?"))
+                    y_reference = float(scope._instr.query(":WAV:YREF?"))
+                    x_increment = float(scope._instr.query(":WAV:XINC?"))
+                    x_origin = float(scope._instr.query(":WAV:XOR?"))
 
                     # Query channel settings
-                    vertical_scale = float(scope.instrument.query(f":CHAN{channel}:SCAL?"))  # type: ignore[reportAttributeAccessIssue]
-                    vertical_offset = float(scope.instrument.query(f":CHAN{channel}:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
-                    probe_ratio = float(scope.instrument.query(f":CHAN{channel}:PROB?"))  # type: ignore[reportAttributeAccessIssue]
+                    vertical_scale = float(scope._instr.query(f":CHAN{channel}:SCAL?"))
+                    vertical_offset = float(scope._instr.query(f":CHAN{channel}:OFFS?"))
+                    probe_ratio = float(scope._instr.query(f":CHAN{channel}:PROB?"))
 
                     # Query sample rate
-                    sample_rate = float(scope.instrument.query(":ACQ:SRAT?"))  # type: ignore[reportAttributeAccessIssue]
+                    sample_rate = float(scope._instr.query(":ACQ:SRAT?"))
 
                     # Chunked reading for large data
                     chunk_size = 10000  # 10k points per chunk
@@ -2021,11 +2042,11 @@ def create_server(temp_dir: str) -> FastMCP:
                             )
 
                             # Set chunk range
-                            scope.instrument.write(f":WAV:STAR {start}")  # type: ignore[reportAttributeAccessIssue]
-                            scope.instrument.write(f":WAV:STOP {end}")  # type: ignore[reportAttributeAccessIssue]
+                            scope._instr.write(f":WAV:STAR {start}")
+                            scope._instr.write(f":WAV:STOP {end}")
 
                             # Read chunk
-                            chunk_data = scope.instrument.query_binary_values(  # type: ignore[reportAttributeAccessIssue]
+                            chunk_data = scope._instr.query_binary_values(
                                 ":WAV:DATA?",
                                 datatype="H",  # Unsigned 16-bit
                                 is_big_endian=False,
@@ -2039,10 +2060,10 @@ def create_server(temp_dir: str) -> FastMCP:
                             message=f"{frame_info}Channel {channel}: Reading {max_points:,} points",
                         )
 
-                        scope.instrument.write(":WAV:STAR 1")  # type: ignore[reportAttributeAccessIssue]
-                        scope.instrument.write(f":WAV:STOP {max_points}")  # type: ignore[reportAttributeAccessIssue]
+                        scope._instr.write(":WAV:STAR 1")
+                        scope._instr.write(f":WAV:STOP {max_points}")
 
-                        raw_data = scope.instrument.query_binary_values(  # type: ignore[reportAttributeAccessIssue]
+                        raw_data = scope._instr.query_binary_values(
                             ":WAV:DATA?",
                             datatype="H",  # Unsigned 16-bit
                             is_big_endian=False,
@@ -2132,14 +2153,14 @@ def create_server(temp_dir: str) -> FastMCP:
                 )
 
                 # Enable file overwriting
-                scope.instrument.write(":SAVE:OVER ON")  # type: ignore[reportAttributeAccessIssue]
+                scope._instr.write(":SAVE:OVER ON")
 
                 # Save memory waveform to scope
-                scope.instrument.write(f":SAVE:MEMory:WAVeform {wfm_scope_path}")  # type: ignore[reportAttributeAccessIssue]
+                scope._instr.write(f":SAVE:MEMory:WAVeform {wfm_scope_path}")
                 time.sleep(5)  # Wait for save to complete
 
                 # Check save status
-                scope.instrument.query(":SAVE:STATus?")  # type: ignore[reportAttributeAccessIssue]
+                scope._instr.query(":SAVE:STATus?")
 
                 # Try to download via FTP
                 ip_address = scope.extract_ip_from_resource()
@@ -2183,10 +2204,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Enable or disable a channel display.
         """
         state = "ON" if enabled else "OFF"
-        scope.instrument.write(f":CHAN{channel}:DISP {state}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":CHAN{channel}:DISP {state}")
 
         # Verify the setting
-        actual_state = int(scope.instrument.query(f":CHAN{channel}:DISP?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_state = int(scope._instr.query(f":CHAN{channel}:DISP?"))
 
         return ChannelEnableResult(channel=channel, enabled=bool(actual_state))
 
@@ -2202,10 +2223,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Set channel coupling mode.
         """
         # Use enum value directly
-        scope.instrument.write(f":CHAN{channel}:COUP {coupling}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":CHAN{channel}:COUP {coupling}")
 
         # Verify the setting
-        actual_coupling = scope.instrument.query(f":CHAN{channel}:COUP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_coupling = scope._instr.query(f":CHAN{channel}:COUP?").strip()
 
         return ChannelCouplingResult(
             channel=channel, coupling=map_coupling_mode(actual_coupling)
@@ -2223,10 +2244,10 @@ def create_server(temp_dir: str) -> FastMCP:
         probe_value = (
             int(probe_ratio) if float(probe_ratio).is_integer() else float(probe_ratio)
         )
-        scope.instrument.write(f":CHAN{channel}:PROB {probe_value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":CHAN{channel}:PROB {probe_value}")
 
         # Verify the setting
-        actual_ratio = float(scope.instrument.query(f":CHAN{channel}:PROB?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_ratio = float(scope._instr.query(f":CHAN{channel}:PROB?"))
 
         return ChannelProbeResult(channel=channel, probe_ratio=actual_ratio)
 
@@ -2258,10 +2279,10 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # Map user-friendly value to SCPI
         bw_value = "20M" if bandwidth_limit == "20MHz" else "OFF"
-        scope.instrument.write(f":CHAN{channel}:BWL {bw_value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":CHAN{channel}:BWL {bw_value}")
 
         # Verify the setting
-        actual_bw = scope.instrument.query(f":CHAN{channel}:BWL?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_bw = scope._instr.query(f":CHAN{channel}:BWL?").strip()
 
         # Map response to enum
         result_bw = "20MHz" if actual_bw == "20M" else "OFF"
@@ -2275,14 +2296,14 @@ def create_server(temp_dir: str) -> FastMCP:
         Get comprehensive channel status and settings.
         """
         # Query all channel settings
-        enabled = bool(int(scope.instrument.query(f":CHAN{channel}:DISP?")))  # type: ignore[reportAttributeAccessIssue]
-        coupling = scope.instrument.query(f":CHAN{channel}:COUP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        probe_ratio = float(scope.instrument.query(f":CHAN{channel}:PROB?"))  # type: ignore[reportAttributeAccessIssue]
-        bw_limit = scope.instrument.query(f":CHAN{channel}:BWL?").strip()  # type: ignore[reportAttributeAccessIssue]
-        vertical_scale = float(scope.instrument.query(f":CHAN{channel}:SCAL?"))  # type: ignore[reportAttributeAccessIssue]
-        vertical_offset = float(scope.instrument.query(f":CHAN{channel}:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
-        invert = bool(int(scope.instrument.query(f":CHAN{channel}:INV?")))  # type: ignore[reportAttributeAccessIssue]
-        units = scope.instrument.query(f":CHAN{channel}:UNIT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        enabled = bool(int(scope._instr.query(f":CHAN{channel}:DISP?")))
+        coupling = scope._instr.query(f":CHAN{channel}:COUP?").strip()
+        probe_ratio = float(scope._instr.query(f":CHAN{channel}:PROB?"))
+        bw_limit = scope._instr.query(f":CHAN{channel}:BWL?").strip()
+        vertical_scale = float(scope._instr.query(f":CHAN{channel}:SCAL?"))
+        vertical_offset = float(scope._instr.query(f":CHAN{channel}:OFFS?"))
+        invert = bool(int(scope._instr.query(f":CHAN{channel}:INV?")))
+        units = scope._instr.query(f":CHAN{channel}:UNIT?").strip()
 
         # Map bandwidth limit
         bandwidth_limit = "20MHz" if bw_limit == "20M" else "OFF"
@@ -2310,10 +2331,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Invert channel waveform display (multiply by -1).
         """
-        scope.instrument.write(f":CHAN{channel}:INV {'ON' if inverted else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":CHAN{channel}:INV {'ON' if inverted else 'OFF'}")
 
         # Verify the setting
-        actual_invert = bool(int(scope.instrument.query(f":CHAN{channel}:INV?")))  # type: ignore[reportAttributeAccessIssue]
+        actual_invert = bool(int(scope._instr.query(f":CHAN{channel}:INV?")))
 
         return ChannelInvertResult(channel=channel, inverted=actual_invert)
 
@@ -2326,10 +2347,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set custom channel label text.
         """
-        scope.instrument.write(f':CHAN{channel}:LAB:CONT "{label}"')  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f':CHAN{channel}:LAB:CONT "{label}"')
 
         # Verify the setting
-        actual_label = scope.instrument.query(f":CHAN{channel}:LAB:CONT?").strip().strip('"')  # type: ignore[reportAttributeAccessIssue]
+        actual_label = scope._instr.query(f":CHAN{channel}:LAB:CONT?").strip().strip('"')
 
         return ChannelLabelResult(channel=channel, label=actual_label)
 
@@ -2342,10 +2363,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Show or hide custom channel label.
         """
-        scope.instrument.write(f":CHAN{channel}:LAB:SHOW {'ON' if visible else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":CHAN{channel}:LAB:SHOW {'ON' if visible else 'OFF'}")
 
         # Verify the setting
-        actual_visible = bool(int(scope.instrument.query(f":CHAN{channel}:LAB:SHOW?")))  # type: ignore[reportAttributeAccessIssue]
+        actual_visible = bool(int(scope._instr.query(f":CHAN{channel}:LAB:SHOW?")))
 
         return ChannelLabelVisibilityResult(channel=channel, visible=actual_visible)
 
@@ -2358,10 +2379,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set voltage display units for channel.
         """
-        scope.instrument.write(f":CHAN{channel}:UNIT {units.value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":CHAN{channel}:UNIT {units.value}")
 
         # Verify the setting
-        actual_units_str = scope.instrument.query(f":CHAN{channel}:UNIT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_units_str = scope._instr.query(f":CHAN{channel}:UNIT?").strip()
 
         # Map SCPI response to enum
         units_map = {
@@ -2384,10 +2405,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set channel vertical scale (V/div).
         """
-        scope.instrument.write(f":CHAN{channel}:SCAL {vertical_scale}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":CHAN{channel}:SCAL {vertical_scale}")
 
         # Verify the setting
-        actual_scale = float(scope.instrument.query(f":CHAN{channel}:SCAL?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_scale = float(scope._instr.query(f":CHAN{channel}:SCAL?"))
 
         return VerticalScaleResult(
             channel=channel, vertical_scale=actual_scale, units="V/div"
@@ -2401,10 +2422,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set channel vertical offset.
         """
-        scope.instrument.write(f":CHAN{channel}:OFFS {vertical_offset}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":CHAN{channel}:OFFS {vertical_offset}")
 
         # Verify the setting
-        actual_offset = float(scope.instrument.query(f":CHAN{channel}:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_offset = float(scope._instr.query(f":CHAN{channel}:OFFS?"))
 
         return VerticalOffsetResult(
             channel=channel, vertical_offset=actual_offset, units="V"
@@ -2420,10 +2441,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set horizontal timebase scale.
         """
-        scope.instrument.write(f":TIM:MAIN:SCAL {time_per_div}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TIM:MAIN:SCAL {time_per_div}")
 
         # Verify the setting
-        actual_scale = float(scope.instrument.query(":TIM:MAIN:SCAL?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_scale = float(scope._instr.query(":TIM:MAIN:SCAL?"))
 
         # Convert to human-readable format
         if actual_scale >= 1:
@@ -2445,10 +2466,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set horizontal timebase offset.
         """
-        scope.instrument.write(f":TIM:MAIN:OFFS {time_offset}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TIM:MAIN:OFFS {time_offset}")
 
         # Verify the setting
-        actual_offset = float(scope.instrument.query(":TIM:MAIN:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_offset = float(scope._instr.query(":TIM:MAIN:OFFS?"))
 
         return TimebaseOffsetResult(time_offset=actual_offset, units="s")
 
@@ -2466,10 +2487,10 @@ def create_server(temp_dir: str) -> FastMCP:
         - **XY**: Lissajous/XY mode (Ch1 = X axis, Ch2 = Y axis)
         - **ROLL**: Slow sweep roll mode (for low frequencies)
         """
-        scope.instrument.write(f":TIM:MODE {mode.value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TIM:MODE {mode.value}")
 
         # Verify the setting
-        actual_mode_str = scope.instrument.query(":TIM:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_mode_str = scope._instr.query(":TIM:MODE?").strip()
 
         # Map SCPI response to enum
         mode_map = {
@@ -2489,10 +2510,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Enable or disable delayed/zoom timebase (zoomed window).
         """
-        scope.instrument.write(f":TIM:DEL:ENAB {'ON' if enabled else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TIM:DEL:ENAB {'ON' if enabled else 'OFF'}")
 
         # Verify the setting
-        actual_enabled = bool(int(scope.instrument.query(":TIM:DEL:ENAB?")))  # type: ignore[reportAttributeAccessIssue]
+        actual_enabled = bool(int(scope._instr.query(":TIM:DEL:ENAB?")))
 
         return DelayedTimebaseEnableResult(enabled=actual_enabled)
 
@@ -2506,10 +2527,10 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Must enable delayed timebase first with enable_delayed_timebase(True).
         """
-        scope.instrument.write(f":TIM:DEL:SCAL {time_per_div}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TIM:DEL:SCAL {time_per_div}")
 
         # Verify the setting
-        actual_scale = float(scope.instrument.query(":TIM:DEL:SCAL?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_scale = float(scope._instr.query(":TIM:DEL:SCAL?"))
 
         # Convert to human-readable format
         if actual_scale >= 1:
@@ -2536,10 +2557,10 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Must enable delayed timebase first with enable_delayed_timebase(True).
         """
-        scope.instrument.write(f":TIM:DEL:OFFS {time_offset}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TIM:DEL:OFFS {time_offset}")
 
         # Verify the setting
-        actual_offset = float(scope.instrument.query(":TIM:DEL:OFFS?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_offset = float(scope._instr.query(":TIM:DEL:OFFS?"))
 
         return DelayedTimebaseOffsetResult(time_offset=actual_offset, units="s")
 
@@ -2551,13 +2572,13 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Start continuous acquisition (RUN mode).
         """
-        scope.instrument.write(":RUN")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":RUN")
 
         # Give it a moment to start
         time.sleep(0.1)
 
         # Check trigger status
-        status = scope.instrument.query(":TRIG:STAT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        status = scope._instr.query(":TRIG:STAT?").strip()
 
         return AcquisitionStatusResult(
             action=AcquisitionAction.RUN, trigger_status=map_trigger_status(status)
@@ -2569,13 +2590,13 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Stop acquisition (STOP mode).
         """
-        scope.instrument.write(":STOP")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":STOP")
 
         # Give it a moment to stop
         time.sleep(0.1)
 
         # Check trigger status
-        status = scope.instrument.query(":TRIG:STAT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        status = scope._instr.query(":TRIG:STAT?").strip()
 
         return AcquisitionStatusResult(
             action=AcquisitionAction.STOP, trigger_status=map_trigger_status(status)
@@ -2587,13 +2608,13 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Perform single acquisition (SINGLE mode).
         """
-        scope.instrument.write(":SING")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":SING")
 
         # Give it a moment to arm
         time.sleep(0.1)
 
         # Check trigger status
-        status = scope.instrument.query(":TRIG:STAT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        status = scope._instr.query(":TRIG:STAT?").strip()
 
         return AcquisitionStatusResult(
             action=AcquisitionAction.SINGLE, trigger_status=map_trigger_status(status)
@@ -2605,7 +2626,7 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Force a trigger event.
         """
-        scope.instrument.write(":TFOR")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TFOR")
 
         return ActionResult(action=SystemAction.FORCE_TRIGGER)
 
@@ -2616,10 +2637,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Get current trigger status.
         """
         # Query trigger status
-        status = scope.instrument.query(":TRIG:STAT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        status = scope._instr.query(":TRIG:STAT?").strip()
 
         # Get additional trigger info
-        mode = scope.instrument.query(":TRIG:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        mode = scope._instr.query(":TRIG:MODE?").strip()
 
         result: TriggerStatusResult = {
             "trigger_status": map_trigger_status(status),
@@ -2632,12 +2653,12 @@ def create_server(temp_dir: str) -> FastMCP:
 
         # If edge trigger, get edge-specific settings
         if mode in ["EDGE", "EDG"]:
-            actual_source = scope.instrument.query(":TRIG:EDGE:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_source = scope._instr.query(":TRIG:EDGE:SOUR?").strip()
             if actual_source.startswith("CHAN") or actual_source.startswith("CH"):
                 # Last character is channel number
                 result["channel"] = int(actual_source[-1])
-            result["trigger_level"] = float(scope.instrument.query(":TRIG:EDGE:LEV?"))  # type: ignore[reportAttributeAccessIssue]
-            raw_slope = scope.instrument.query(":TRIG:EDGE:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+            result["trigger_level"] = float(scope._instr.query(":TRIG:EDGE:LEV?"))
+            raw_slope = scope._instr.query(":TRIG:EDGE:SLOP?").strip()
             result["trigger_slope"] = map_trigger_slope_response(raw_slope)
 
         return result
@@ -2658,29 +2679,29 @@ def create_server(temp_dir: str) -> FastMCP:
         over time.
         """
         # Enable waveform recording
-        scope.instrument.write(":RECord:WRECord:ENABle ON")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":RECord:WRECord:ENABle ON")
 
         # Set number of frames (None = use MAX)
         if frames is None:
-            scope.instrument.write(":RECord:WRECord:FRAMes:MAX")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(":RECord:WRECord:FRAMes:MAX")
         else:
-            scope.instrument.write(f":RECord:WRECord:FRAMes {frames}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":RECord:WRECord:FRAMes {frames}")
 
         # Set frame interval
-        scope.instrument.write(f":RECord:WRECord:FINTerval {frame_interval}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":RECord:WRECord:FINTerval {frame_interval}")
 
         # Start recording
-        scope.instrument.write(":RECord:WRECord:OPERate RUN")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":RECord:WRECord:OPERate RUN")
 
         # Brief pause for settings to take effect
         time.sleep(0.1)
 
         # Query current state to confirm
-        enabled = bool(int(scope.instrument.query(":RECord:WRECord:ENABle?")))  # type: ignore[reportAttributeAccessIssue]
-        operation_str = scope.instrument.query(":RECord:WRECord:OPERate?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_frames = int(scope.instrument.query(":RECord:WRECord:FRAMes?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_interval = float(scope.instrument.query(":RECord:WRECord:FINTerval?"))  # type: ignore[reportAttributeAccessIssue]
-        max_frames = int(scope.instrument.query(":RECord:WRECord:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+        enabled = bool(int(scope._instr.query(":RECord:WRECord:ENABle?")))
+        operation_str = scope._instr.query(":RECord:WRECord:OPERate?").strip()
+        actual_frames = int(scope._instr.query(":RECord:WRECord:FRAMes?"))
+        actual_interval = float(scope._instr.query(":RECord:WRECord:FINTerval?"))
+        max_frames = int(scope._instr.query(":RECord:WRECord:FMAX?"))
 
         return WaveformRecordingResult(
             enabled=enabled,
@@ -2699,17 +2720,17 @@ def create_server(temp_dir: str) -> FastMCP:
         Stops the current recording operation and returns the final recording state.
         """
         # Stop recording
-        scope.instrument.write(":RECord:WRECord:OPERate STOP")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":RECord:WRECord:OPERate STOP")
 
         # Brief pause
         time.sleep(0.1)
 
         # Query current state
-        enabled = bool(int(scope.instrument.query(":RECord:WRECord:ENABle?")))  # type: ignore[reportAttributeAccessIssue]
-        operation_str = scope.instrument.query(":RECord:WRECord:OPERate?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_frames = int(scope.instrument.query(":RECord:WRECord:FRAMes?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_interval = float(scope.instrument.query(":RECord:WRECord:FINTerval?"))  # type: ignore[reportAttributeAccessIssue]
-        max_frames = int(scope.instrument.query(":RECord:WRECord:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+        enabled = bool(int(scope._instr.query(":RECord:WRECord:ENABle?")))
+        operation_str = scope._instr.query(":RECord:WRECord:OPERate?").strip()
+        actual_frames = int(scope._instr.query(":RECord:WRECord:FRAMes?"))
+        actual_interval = float(scope._instr.query(":RECord:WRECord:FINTerval?"))
+        max_frames = int(scope._instr.query(":RECord:WRECord:FMAX?"))
 
         return WaveformRecordingResult(
             enabled=enabled,
@@ -2726,11 +2747,11 @@ def create_server(temp_dir: str) -> FastMCP:
         Query current recording status and configuration.
         """
         # Query current state
-        enabled = bool(int(scope.instrument.query(":RECord:WRECord:ENABle?")))  # type: ignore[reportAttributeAccessIssue]
-        operation_str = scope.instrument.query(":RECord:WRECord:OPERate?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_frames = int(scope.instrument.query(":RECord:WRECord:FRAMes?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_interval = float(scope.instrument.query(":RECord:WRECord:FINTerval?"))  # type: ignore[reportAttributeAccessIssue]
-        max_frames = int(scope.instrument.query(":RECord:WRECord:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+        enabled = bool(int(scope._instr.query(":RECord:WRECord:ENABle?")))
+        operation_str = scope._instr.query(":RECord:WRECord:OPERate?").strip()
+        actual_frames = int(scope._instr.query(":RECord:WRECord:FRAMes?"))
+        actual_interval = float(scope._instr.query(":RECord:WRECord:FINTerval?"))
+        max_frames = int(scope._instr.query(":RECord:WRECord:FMAX?"))
 
         return WaveformRecordingResult(
             enabled=enabled,
@@ -2750,10 +2771,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set trigger mode.
         """
-        scope.instrument.write(f":TRIG:MODE {trigger_mode.value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:MODE {trigger_mode.value}")
 
         # Verify the setting
-        actual_mode = scope.instrument.query(":TRIG:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_mode = scope._instr.query(":TRIG:MODE?").strip()
 
         # Map to enum - handle abbreviated responses
         for tm in TriggerMode:
@@ -2770,15 +2791,15 @@ def create_server(temp_dir: str) -> FastMCP:
         Set trigger source for edge trigger.
         """
         # Ensure we're in edge trigger mode
-        current_mode = scope.instrument.query(":TRIG:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        current_mode = scope._instr.query(":TRIG:MODE?").strip()
         if current_mode not in ["EDGE", "EDG"]:
-            scope.instrument.write(":TRIG:MODE EDGE")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(":TRIG:MODE EDGE")
 
         # Use the channel's SCPI format
-        scope.instrument.write(f":TRIG:EDGE:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:EDGE:SOUR CHAN{channel}")
 
         # Verify the setting
-        actual_source = scope.instrument.query(":TRIG:EDGE:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:EDGE:SOUR?").strip()
 
         # Map back to channel number
         if actual_source.startswith("CHAN") or actual_source.startswith("CH"):
@@ -2803,17 +2824,17 @@ def create_server(temp_dir: str) -> FastMCP:
         # If source specified, set it first
         if channel:
             # Ensure we're in edge trigger mode
-            current_mode = scope.instrument.query(":TRIG:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+            current_mode = scope._instr.query(":TRIG:MODE?").strip()
             if current_mode not in ["EDGE", "EDG"]:
-                scope.instrument.write(":TRIG:MODE EDGE")  # type: ignore[reportAttributeAccessIssue]
+                scope._instr.write(":TRIG:MODE EDGE")
 
             # Set the source
-            scope.instrument.write(f":TRIG:EDGE:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:EDGE:SOUR CHAN{channel}")
 
-        scope.instrument.write(f":TRIG:EDGE:LEV {trigger_level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:EDGE:LEV {trigger_level}")
 
         # Verify the setting
-        actual_level = float(scope.instrument.query(":TRIG:EDGE:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_level = float(scope._instr.query(":TRIG:EDGE:LEV?"))
 
         return TriggerLevelResult(trigger_level=actual_level, units="V")
 
@@ -2833,10 +2854,10 @@ def create_server(temp_dir: str) -> FastMCP:
             TriggerSlope.NEGATIVE: "NEG",
             TriggerSlope.EITHER: "RFAL",
         }
-        scope.instrument.write(f":TRIG:EDGE:SLOP {slope_map[trigger_slope]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:EDGE:SLOP {slope_map[trigger_slope]}")
 
         # Verify the setting
-        actual_slope = scope.instrument.query(":TRIG:EDGE:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_slope = scope._instr.query(":TRIG:EDGE:SLOP?").strip()
 
         # Map back to friendly names
         result_slope = map_trigger_slope_response(actual_slope)
@@ -2861,10 +2882,10 @@ def create_server(temp_dir: str) -> FastMCP:
         - **HFReject**: High frequency rejection - blocks signals >150 kHz
         """
         # Map user-friendly coupling to SCPI format
-        scope.instrument.write(f":TRIG:COUP {coupling}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:COUP {coupling}")
 
         # Verify the setting
-        actual_coupling = scope.instrument.query(":TRIG:COUP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_coupling = scope._instr.query(":TRIG:COUP?").strip()
 
         # Map SCPI response back to user-friendly format
         # DHO800 may return abbreviated forms
@@ -2901,10 +2922,10 @@ def create_server(temp_dir: str) -> FastMCP:
         control *whether* the scope is acquiring.
         """
         # TriggerSweep enum values map directly to SCPI format
-        scope.instrument.write(f":TRIG:SWE {sweep_mode.value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SWE {sweep_mode.value}")
 
         # Verify the setting
-        actual_sweep = scope.instrument.query(":TRIG:SWE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_sweep = scope._instr.query(":TRIG:SWE?").strip()
 
         # Map response back to enum
         sweep_map = {
@@ -2941,10 +2962,10 @@ def create_server(temp_dir: str) -> FastMCP:
                 f"Holdoff time must be between 16ns and 10s, got {holdoff_time}s"
             )
 
-        scope.instrument.write(f":TRIG:HOLD {holdoff_time}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:HOLD {holdoff_time}")
 
         # Verify the setting
-        actual_holdoff = float(scope.instrument.query(":TRIG:HOLD?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_holdoff = float(scope._instr.query(":TRIG:HOLD?"))
 
         # Convert to human-readable format
         if actual_holdoff >= 1:
@@ -2981,10 +3002,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Trade-off: Improved stability vs. reduced sensitivity to genuine small signals.
         """
         state = "ON" if enabled else "OFF"
-        scope.instrument.write(f":TRIG:NREJ {state}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:NREJ {state}")
 
         # Verify the setting
-        actual_state = int(scope.instrument.query(":TRIG:NREJ?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_state = int(scope._instr.query(":TRIG:NREJ?"))
 
         return TriggerNoiseRejectResult(noise_reject_enabled=bool(actual_state))
 
@@ -3025,10 +3046,10 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("lower_width is required when when='WITHIN'")
 
         # Set trigger mode to PULSE
-        scope.instrument.write(":TRIG:MODE PULS")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE PULS")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:PULS:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:PULS:SOUR CHAN{channel}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -3036,31 +3057,31 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope.instrument.write(f":TRIG:PULS:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:PULS:WHEN {when_map[when]}")
 
         # Set upper width
-        scope.instrument.write(f":TRIG:PULS:UWID {upper_width}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:PULS:UWID {upper_width}")
 
         # Set lower width if WITHIN
         if when == "WITHIN" and lower_width is not None:
-            scope.instrument.write(f":TRIG:PULS:LWID {lower_width}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:PULS:LWID {lower_width}")
 
         # Map polarity to SCPI format
         polarity_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope.instrument.write(f":TRIG:PULS:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:PULS:POL {polarity_map[polarity]}")
 
         # Set trigger level
-        scope.instrument.write(f":TRIG:PULS:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:PULS:LEV {level}")
 
         # Verify configuration by reading back
-        actual_source = scope.instrument.query(":TRIG:PULS:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_when = scope.instrument.query(":TRIG:PULS:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_upper = float(scope.instrument.query(":TRIG:PULS:UWID?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_polarity = scope.instrument.query(":TRIG:PULS:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_level = float(scope.instrument.query(":TRIG:PULS:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:PULS:SOUR?").strip()
+        actual_when = scope._instr.query(":TRIG:PULS:WHEN?").strip()
+        actual_upper = float(scope._instr.query(":TRIG:PULS:UWID?"))
+        actual_polarity = scope._instr.query(":TRIG:PULS:POL?").strip()
+        actual_level = float(scope._instr.query(":TRIG:PULS:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3068,7 +3089,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read lower width if applicable
         actual_lower: Optional[float] = None
         if when == "WITHIN":
-            actual_lower = float(scope.instrument.query(":TRIG:PULS:LWID?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_lower = float(scope._instr.query(":TRIG:PULS:LWID?"))
 
         # Map responses back to user-friendly format
         when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
@@ -3124,10 +3145,10 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("lower_time is required when when='WITHIN'")
 
         # Set trigger mode to SLOPE
-        scope.instrument.write(":TRIG:MODE SLOP")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE SLOP")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:SLOP:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SLOP:SOUR CHAN{channel}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -3135,37 +3156,37 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope.instrument.write(f":TRIG:SLOP:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SLOP:WHEN {when_map[when]}")
 
         # Set upper time
-        scope.instrument.write(f":TRIG:SLOP:TUPP {upper_time}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SLOP:TUPP {upper_time}")
 
         # Set lower time if WITHIN
         if when == "WITHIN" and lower_time is not None:
-            scope.instrument.write(f":TRIG:SLOP:TLOW {lower_time}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:SLOP:TLOW {lower_time}")
 
         # Map polarity to SCPI format
         polarity_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope.instrument.write(f":TRIG:SLOP:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SLOP:POL {polarity_map[polarity]}")
 
         # Set voltage levels
-        scope.instrument.write(f":TRIG:SLOP:ALEV {level_a}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:SLOP:BLEV {level_b}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SLOP:ALEV {level_a}")
+        scope._instr.write(f":TRIG:SLOP:BLEV {level_b}")
 
         # Set window
-        scope.instrument.write(f":TRIG:SLOP:WIND {window}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SLOP:WIND {window}")
 
         # Verify configuration by reading back
-        actual_source = scope.instrument.query(":TRIG:SLOP:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_when = scope.instrument.query(":TRIG:SLOP:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_upper = float(scope.instrument.query(":TRIG:SLOP:TUPP?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_polarity = scope.instrument.query(":TRIG:SLOP:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_level_a = float(scope.instrument.query(":TRIG:SLOP:ALEV?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_level_b = float(scope.instrument.query(":TRIG:SLOP:BLEV?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_window = scope.instrument.query(":TRIG:SLOP:WIND?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:SLOP:SOUR?").strip()
+        actual_when = scope._instr.query(":TRIG:SLOP:WHEN?").strip()
+        actual_upper = float(scope._instr.query(":TRIG:SLOP:TUPP?"))
+        actual_polarity = scope._instr.query(":TRIG:SLOP:POL?").strip()
+        actual_level_a = float(scope._instr.query(":TRIG:SLOP:ALEV?"))
+        actual_level_b = float(scope._instr.query(":TRIG:SLOP:BLEV?"))
+        actual_window = scope._instr.query(":TRIG:SLOP:WIND?").strip()
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3173,7 +3194,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read lower time if applicable
         actual_lower: Optional[float] = None
         if when == "WITHIN":
-            actual_lower = float(scope.instrument.query(":TRIG:SLOP:TLOW?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_lower = float(scope._instr.query(":TRIG:SLOP:TLOW?"))
 
         # Map responses back to user-friendly format
         when_reverse = {"GRE": "GREATER", "GREA": "GREATER", "LESS": "LESS", "WITH": "WITHIN"}
@@ -3223,17 +3244,17 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("line_number is required when mode='LINE'")
 
         # Set trigger mode to VIDEO
-        scope.instrument.write(":TRIG:MODE VID")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE VID")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:VID:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:VID:SOUR CHAN{channel}")
 
         # Map polarity to SCPI format
         polarity_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope.instrument.write(f":TRIG:VID:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:VID:POL {polarity_map[polarity]}")
 
         # Map mode to SCPI format
         mode_map = {
@@ -3242,11 +3263,11 @@ def create_server(temp_dir: str) -> FastMCP:
             "LINE": "LINE",
             "ALL_LINES": "ALIN",
         }
-        scope.instrument.write(f":TRIG:VID:MODE {mode_map[mode]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:VID:MODE {mode_map[mode]}")
 
         # Set line number if LINE mode
         if mode == "LINE" and line_number is not None:
-            scope.instrument.write(f":TRIG:VID:LINE {line_number}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:VID:LINE {line_number}")
 
         # Map standard to SCPI format
         standard_map = {
@@ -3255,17 +3276,17 @@ def create_server(temp_dir: str) -> FastMCP:
             "480P": "480P",
             "576P": "576P",
         }
-        scope.instrument.write(f":TRIG:VID:STAN {standard_map[standard]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:VID:STAN {standard_map[standard]}")
 
         # Set trigger level
-        scope.instrument.write(f":TRIG:VID:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:VID:LEV {level}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(":TRIG:VID:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_polarity = scope.instrument.query(":TRIG:VID:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_mode = scope.instrument.query(":TRIG:VID:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_standard = scope.instrument.query(":TRIG:VID:STAN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_level = float(scope.instrument.query(":TRIG:VID:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:VID:SOUR?").strip()
+        actual_polarity = scope._instr.query(":TRIG:VID:POL?").strip()
+        actual_mode = scope._instr.query(":TRIG:VID:MODE?").strip()
+        actual_standard = scope._instr.query(":TRIG:VID:STAN?").strip()
+        actual_level = float(scope._instr.query(":TRIG:VID:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3273,7 +3294,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read line number if LINE mode
         actual_line: Optional[int] = None
         if mode == "LINE":
-            actual_line = int(scope.instrument.query(":TRIG:VID:LINE?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_line = int(scope._instr.query(":TRIG:VID:LINE?"))
 
         # Map responses back
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -3330,27 +3351,27 @@ def create_server(temp_dir: str) -> FastMCP:
                 raise ValueError(f"Invalid pattern value '{val}'. Must be one of: {valid_values}")
 
         # Set trigger mode to PATTERN
-        scope.instrument.write(":TRIG:MODE PATT")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE PATT")
 
         # Set pattern (comma-separated)
         pattern_str = ",".join(pattern)
-        scope.instrument.write(f":TRIG:PATT:PATT {pattern_str}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:PATT:PATT {pattern_str}")
 
         # Set trigger levels for specified channels
         for channel, level in levels.items():
             if channel < 1 or channel > 4:
                 raise ValueError(f"Channel must be 1-4, got {channel}")
-            scope.instrument.write(f":TRIG:PATT:LEV{channel} {level}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:PATT:LEV{channel} {level}")
 
         # Verify configuration
-        actual_pattern_str = scope.instrument.query(":TRIG:PATT:PATT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_pattern_str = scope._instr.query(":TRIG:PATT:PATT?").strip()
         actual_pattern = actual_pattern_str.split(",")
 
         # Read back levels for all channels
         actual_levels = {}
         for channel in range(1, 5):
             try:
-                level = float(scope.instrument.query(f":TRIG:PATT:LEV{channel}?"))  # type: ignore[reportAttributeAccessIssue]
+                level = float(scope._instr.query(f":TRIG:PATT:LEV{channel}?"))
                 actual_levels[channel] = level
             except:
                 pass  # Channel level may not be set
@@ -3390,17 +3411,17 @@ def create_server(temp_dir: str) -> FastMCP:
         - Power supply glitches
         """
         # Set trigger mode to RUNT
-        scope.instrument.write(":TRIG:MODE RUNT")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE RUNT")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:RUNT:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RUNT:SOUR CHAN{channel}")
 
         # Map polarity to SCPI format
         polarity_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope.instrument.write(f":TRIG:RUNT:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RUNT:POL {polarity_map[polarity]}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -3408,24 +3429,24 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope.instrument.write(f":TRIG:RUNT:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RUNT:WHEN {when_map[when]}")
 
         # Set width limits
-        scope.instrument.write(f":TRIG:RUNT:UWID {upper_width}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:RUNT:LWID {lower_width}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RUNT:UWID {upper_width}")
+        scope._instr.write(f":TRIG:RUNT:LWID {lower_width}")
 
         # Set voltage thresholds
-        scope.instrument.write(f":TRIG:RUNT:ALEV {level_a}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:RUNT:BLEV {level_b}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RUNT:ALEV {level_a}")
+        scope._instr.write(f":TRIG:RUNT:BLEV {level_b}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(":TRIG:RUNT:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_polarity = scope.instrument.query(":TRIG:RUNT:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_when = scope.instrument.query(":TRIG:RUNT:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_upper = float(scope.instrument.query(":TRIG:RUNT:UWID?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_lower = float(scope.instrument.query(":TRIG:RUNT:LWID?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_level_a = float(scope.instrument.query(":TRIG:RUNT:ALEV?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_level_b = float(scope.instrument.query(":TRIG:RUNT:BLEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:RUNT:SOUR?").strip()
+        actual_polarity = scope._instr.query(":TRIG:RUNT:POL?").strip()
+        actual_when = scope._instr.query(":TRIG:RUNT:WHEN?").strip()
+        actual_upper = float(scope._instr.query(":TRIG:RUNT:UWID?"))
+        actual_lower = float(scope._instr.query(":TRIG:RUNT:LWID?"))
+        actual_level_a = float(scope._instr.query(":TRIG:RUNT:ALEV?"))
+        actual_level_b = float(scope._instr.query(":TRIG:RUNT:BLEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3468,29 +3489,29 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing idle periods
         """
         # Set trigger mode to TIMEOUT
-        scope.instrument.write(":TRIG:MODE TIM")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE TIM")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:TIM:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:TIM:SOUR CHAN{channel}")
 
         # Map slope to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope.instrument.write(f":TRIG:TIM:SLOP {slope_map[slope]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:TIM:SLOP {slope_map[slope]}")
 
         # Set timeout duration
-        scope.instrument.write(f":TRIG:TIM:TIM {timeout}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:TIM:TIM {timeout}")
 
         # Set trigger level
-        scope.instrument.write(f":TRIG:TIM:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:TIM:LEV {level}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(":TRIG:TIM:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_slope = scope.instrument.query(":TRIG:TIM:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_timeout = float(scope.instrument.query(":TRIG:TIM:TIM?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_level = float(scope.instrument.query(":TRIG:TIM:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:TIM:SOUR?").strip()
+        actual_slope = scope._instr.query(":TRIG:TIM:SLOP?").strip()
+        actual_timeout = float(scope._instr.query(":TRIG:TIM:TIM?"))
+        actual_level = float(scope._instr.query(":TRIG:TIM:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3528,10 +3549,10 @@ def create_server(temp_dir: str) -> FastMCP:
         Triggers on pattern that persists for specific duration.
         """
         # Set trigger mode to DURATION
-        scope.instrument.write(":TRIG:MODE DUR")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE DUR")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:DUR:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:DUR:SOUR CHAN{channel}")
 
         # Map conditions to SCPI format
         condition_map = {
@@ -3539,23 +3560,23 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope.instrument.write(f":TRIG:DUR:TYPE {condition_map[pattern_type]}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:DUR:WHEN {condition_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:DUR:TYPE {condition_map[pattern_type]}")
+        scope._instr.write(f":TRIG:DUR:WHEN {condition_map[when]}")
 
         # Set time limits
-        scope.instrument.write(f":TRIG:DUR:UWID {upper_width}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:DUR:LWID {lower_width}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:DUR:UWID {upper_width}")
+        scope._instr.write(f":TRIG:DUR:LWID {lower_width}")
 
         # Set trigger level
-        scope.instrument.write(f":TRIG:DUR:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:DUR:LEV {level}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(":TRIG:DUR:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_type = scope.instrument.query(":TRIG:DUR:TYPE?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_when = scope.instrument.query(":TRIG:DUR:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_upper = float(scope.instrument.query(":TRIG:DUR:UWID?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_lower = float(scope.instrument.query(":TRIG:DUR:LWID?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_level = float(scope.instrument.query(":TRIG:DUR:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:DUR:SOUR?").strip()
+        actual_type = scope._instr.query(":TRIG:DUR:TYPE?").strip()
+        actual_when = scope._instr.query(":TRIG:DUR:WHEN?").strip()
+        actual_upper = float(scope._instr.query(":TRIG:DUR:UWID?"))
+        actual_lower = float(scope._instr.query(":TRIG:DUR:LWID?"))
+        actual_level = float(scope._instr.query(":TRIG:DUR:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3603,39 +3624,39 @@ def create_server(temp_dir: str) -> FastMCP:
         - Validating memory timing
         """
         # Set trigger mode to SETUP/HOLD
-        scope.instrument.write(":TRIG:MODE SHOL")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE SHOL")
 
         # Set data and clock sources
-        scope.instrument.write(f":TRIG:SHOL:DSRC CHAN{data_channel}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:SHOL:CSRC CHAN{clock_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SHOL:DSRC CHAN{data_channel}")
+        scope._instr.write(f":TRIG:SHOL:CSRC CHAN{clock_channel}")
 
         # Map clock slope to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope.instrument.write(f":TRIG:SHOL:SLOP {slope_map[clock_slope]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SHOL:SLOP {slope_map[clock_slope]}")
 
         # Set data pattern
-        scope.instrument.write(f":TRIG:SHOL:PATT {data_pattern}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SHOL:PATT {data_pattern}")
 
         # Set setup and hold times
-        scope.instrument.write(f":TRIG:SHOL:STIM {setup_time}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:SHOL:HTIM {hold_time}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SHOL:STIM {setup_time}")
+        scope._instr.write(f":TRIG:SHOL:HTIM {hold_time}")
 
         # Set voltage levels
-        scope.instrument.write(f":TRIG:SHOL:DLEV {data_level}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:SHOL:CLEV {clock_level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SHOL:DLEV {data_level}")
+        scope._instr.write(f":TRIG:SHOL:CLEV {clock_level}")
 
         # Verify configuration
-        actual_dsrc = scope.instrument.query(":TRIG:SHOL:DSRC?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_csrc = scope.instrument.query(":TRIG:SHOL:CSRC?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_slope = scope.instrument.query(":TRIG:SHOL:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_pattern = scope.instrument.query(":TRIG:SHOL:PATT?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_setup = float(scope.instrument.query(":TRIG:SHOL:STIM?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_hold = float(scope.instrument.query(":TRIG:SHOL:HTIM?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_dlev = float(scope.instrument.query(":TRIG:SHOL:DLEV?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_clev = float(scope.instrument.query(":TRIG:SHOL:CLEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_dsrc = scope._instr.query(":TRIG:SHOL:DSRC?").strip()
+        actual_csrc = scope._instr.query(":TRIG:SHOL:CSRC?").strip()
+        actual_slope = scope._instr.query(":TRIG:SHOL:SLOP?").strip()
+        actual_pattern = scope._instr.query(":TRIG:SHOL:PATT?").strip()
+        actual_setup = float(scope._instr.query(":TRIG:SHOL:STIM?"))
+        actual_hold = float(scope._instr.query(":TRIG:SHOL:HTIM?"))
+        actual_dlev = float(scope._instr.query(":TRIG:SHOL:DLEV?"))
+        actual_clev = float(scope._instr.query(":TRIG:SHOL:CLEV?"))
 
         # Parse channels from source
         actual_data_channel = _parse_channel_from_scpi(actual_dsrc)
@@ -3684,31 +3705,31 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError(f"edge_count must be 1-65535, got {edge_count}")
 
         # Set trigger mode to NTH EDGE
-        scope.instrument.write(":TRIG:MODE NEDG")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE NEDG")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:NEDG:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:NEDG:SOUR CHAN{channel}")
 
         # Map slope to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope.instrument.write(f":TRIG:NEDG:SLOP {slope_map[slope]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:NEDG:SLOP {slope_map[slope]}")
 
         # Set idle time and edge count
-        scope.instrument.write(f":TRIG:NEDG:IDLE {idle_time}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:NEDG:EDGE {edge_count}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:NEDG:IDLE {idle_time}")
+        scope._instr.write(f":TRIG:NEDG:EDGE {edge_count}")
 
         # Set trigger level
-        scope.instrument.write(f":TRIG:NEDG:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:NEDG:LEV {level}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(":TRIG:NEDG:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_slope = scope.instrument.query(":TRIG:NEDG:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_idle = float(scope.instrument.query(":TRIG:NEDG:IDLE?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_count = int(scope.instrument.query(":TRIG:NEDG:EDGE?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_level = float(scope.instrument.query(":TRIG:NEDG:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:NEDG:SOUR?").strip()
+        actual_slope = scope._instr.query(":TRIG:NEDG:SLOP?").strip()
+        actual_idle = float(scope._instr.query(":TRIG:NEDG:IDLE?"))
+        actual_count = int(scope._instr.query(":TRIG:NEDG:EDGE?"))
+        actual_level = float(scope._instr.query(":TRIG:NEDG:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3760,35 +3781,35 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("time is required when position='TIME'")
 
         # Set trigger mode to WINDOW
-        scope.instrument.write(":TRIG:MODE WIND")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE WIND")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:WIND:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:WIND:SOUR CHAN{channel}")
 
         # Map slope to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope.instrument.write(f":TRIG:WIND:SLOP {slope_map[slope]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:WIND:SLOP {slope_map[slope]}")
 
         # Set position
-        scope.instrument.write(f":TRIG:WIND:POS {position}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:WIND:POS {position}")
 
         # Set time if TIME position
         if position == "TIME" and time is not None:
-            scope.instrument.write(f":TRIG:WIND:TIME {time}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:WIND:TIME {time}")
 
         # Set voltage thresholds
-        scope.instrument.write(f":TRIG:WIND:ALEV {level_a}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:WIND:BLEV {level_b}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:WIND:ALEV {level_a}")
+        scope._instr.write(f":TRIG:WIND:BLEV {level_b}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(":TRIG:WIND:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_slope = scope.instrument.query(":TRIG:WIND:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_position = scope.instrument.query(":TRIG:WIND:POS?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_level_a = float(scope.instrument.query(":TRIG:WIND:ALEV?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_level_b = float(scope.instrument.query(":TRIG:WIND:BLEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:WIND:SOUR?").strip()
+        actual_slope = scope._instr.query(":TRIG:WIND:SLOP?").strip()
+        actual_position = scope._instr.query(":TRIG:WIND:POS?").strip()
+        actual_level_a = float(scope._instr.query(":TRIG:WIND:ALEV?"))
+        actual_level_b = float(scope._instr.query(":TRIG:WIND:BLEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -3796,7 +3817,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read time if TIME position
         actual_time: Optional[float] = None
         if position == "TIME":
-            actual_time = float(scope.instrument.query(":TRIG:WIND:TIME?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_time = float(scope._instr.query(":TRIG:WIND:TIME?"))
 
         # Map responses back
         slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -3852,19 +3873,19 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("lower_time is required when delay_type='WITHIN'")
 
         # Set trigger mode to DELAY
-        scope.instrument.write(":TRIG:MODE DEL")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE DEL")
 
         # Set source channels
-        scope.instrument.write(f":TRIG:DEL:SA CHAN{source_a_channel}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:DEL:SB CHAN{source_b_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:DEL:SA CHAN{source_a_channel}")
+        scope._instr.write(f":TRIG:DEL:SB CHAN{source_b_channel}")
 
         # Map slopes to SCPI format
         slope_map = {
             "POSITIVE": "POS",
             "NEGATIVE": "NEG",
         }
-        scope.instrument.write(f":TRIG:DEL:SLOPA {slope_map[slope_a]}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:DEL:SLOPB {slope_map[slope_b]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:DEL:SLOPA {slope_map[slope_a]}")
+        scope._instr.write(f":TRIG:DEL:SLOPB {slope_map[slope_b]}")
 
         # Map delay type to SCPI format
         type_map = {
@@ -3872,26 +3893,26 @@ def create_server(temp_dir: str) -> FastMCP:
             "LESS": "LESS",
             "WITHIN": "WITH",
         }
-        scope.instrument.write(f":TRIG:DEL:TYPE {type_map[delay_type]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:DEL:TYPE {type_map[delay_type]}")
 
         # Set time limits
-        scope.instrument.write(f":TRIG:DEL:TUPP {upper_time}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:DEL:TUPP {upper_time}")
         if delay_type == "WITHIN" and lower_time is not None:
-            scope.instrument.write(f":TRIG:DEL:TLOW {lower_time}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:DEL:TLOW {lower_time}")
 
         # Set voltage levels
-        scope.instrument.write(f":TRIG:DEL:LEVA {level_a}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:DEL:LEVB {level_b}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:DEL:LEVA {level_a}")
+        scope._instr.write(f":TRIG:DEL:LEVB {level_b}")
 
         # Verify configuration
-        actual_sa = scope.instrument.query(":TRIG:DEL:SA?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_sb = scope.instrument.query(":TRIG:DEL:SB?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_slope_a = scope.instrument.query(":TRIG:DEL:SLOPA?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_slope_b = scope.instrument.query(":TRIG:DEL:SLOPB?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_type = scope.instrument.query(":TRIG:DEL:TYPE?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_upper = float(scope.instrument.query(":TRIG:DEL:TUPP?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_level_a = float(scope.instrument.query(":TRIG:DEL:LEVA?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_level_b = float(scope.instrument.query(":TRIG:DEL:LEVB?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_sa = scope._instr.query(":TRIG:DEL:SA?").strip()
+        actual_sb = scope._instr.query(":TRIG:DEL:SB?").strip()
+        actual_slope_a = scope._instr.query(":TRIG:DEL:SLOPA?").strip()
+        actual_slope_b = scope._instr.query(":TRIG:DEL:SLOPB?").strip()
+        actual_type = scope._instr.query(":TRIG:DEL:TYPE?").strip()
+        actual_upper = float(scope._instr.query(":TRIG:DEL:TUPP?"))
+        actual_level_a = float(scope._instr.query(":TRIG:DEL:LEVA?"))
+        actual_level_b = float(scope._instr.query(":TRIG:DEL:LEVB?"))
 
         # Parse channels from source
         actual_source_a = _parse_channel_from_scpi(actual_sa)
@@ -3900,7 +3921,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read lower time if WITHIN
         actual_lower: Optional[float] = None
         if delay_type == "WITHIN":
-            actual_lower = float(scope.instrument.query(":TRIG:DEL:TLOW?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_lower = float(scope._instr.query(":TRIG:DEL:TLOW?"))
 
         # Map responses back
         slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -3968,10 +3989,10 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("data_value is required when when='DATA'")
 
         # Set trigger mode to RS232
-        scope.instrument.write(":TRIG:MODE RS232")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE RS232")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:RS232:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RS232:SOUR CHAN{channel}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -3980,41 +4001,41 @@ def create_server(temp_dir: str) -> FastMCP:
             "PARITY_ERROR": "CERR",
             "DATA": "DATA",
         }
-        scope.instrument.write(f":TRIG:RS232:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RS232:WHEN {when_map[when]}")
 
         # Set data value if DATA mode
         if when == "DATA" and data_value is not None:
-            scope.instrument.write(f":TRIG:RS232:DATA {data_value}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:RS232:DATA {data_value}")
 
         # Set baud rate
-        scope.instrument.write(f":TRIG:RS232:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RS232:BAUD {baud_rate}")
 
         # Set data width
-        scope.instrument.write(f":TRIG:RS232:WIDT {data_bits}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RS232:WIDT {data_bits}")
 
         # Set stop bits
-        scope.instrument.write(f":TRIG:RS232:STOP {stop_bits}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RS232:STOP {stop_bits}")
 
         # Map parity to SCPI format
         parity_scpi = SerialParity[parity].value
-        scope.instrument.write(f":TRIG:RS232:PAR {parity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RS232:PAR {parity_scpi}")
 
         # Map polarity to SCPI format
         polarity_map = {"POSITIVE": "POS", "NEGATIVE": "NEG"}
-        scope.instrument.write(f":TRIG:RS232:POL {polarity_map[polarity]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RS232:POL {polarity_map[polarity]}")
 
         # Set trigger level
-        scope.instrument.write(f":TRIG:RS232:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:RS232:LEV {level}")
 
         # Verify configuration by reading back
-        actual_source = scope.instrument.query(":TRIG:RS232:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_when = scope.instrument.query(":TRIG:RS232:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_baud = int(scope.instrument.query(":TRIG:RS232:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_width = int(scope.instrument.query(":TRIG:RS232:WIDT?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_stop = scope.instrument.query(":TRIG:RS232:STOP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_parity = scope.instrument.query(":TRIG:RS232:PAR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_polarity = scope.instrument.query(":TRIG:RS232:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_level = float(scope.instrument.query(":TRIG:RS232:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:RS232:SOUR?").strip()
+        actual_when = scope._instr.query(":TRIG:RS232:WHEN?").strip()
+        actual_baud = int(scope._instr.query(":TRIG:RS232:BAUD?"))
+        actual_width = int(scope._instr.query(":TRIG:RS232:WIDT?"))
+        actual_stop = scope._instr.query(":TRIG:RS232:STOP?").strip()
+        actual_parity = scope._instr.query(":TRIG:RS232:PAR?").strip()
+        actual_polarity = scope._instr.query(":TRIG:RS232:POL?").strip()
+        actual_level = float(scope._instr.query(":TRIG:RS232:LEV?"))
 
         # Parse channel from source
         actual_channel = _parse_channel_from_scpi(actual_source)
@@ -4022,7 +4043,7 @@ def create_server(temp_dir: str) -> FastMCP:
         # Read data value if DATA mode
         actual_data: Optional[int] = None
         if when == "DATA":
-            actual_data = int(scope.instrument.query(":TRIG:RS232:DATA?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_data = int(scope._instr.query(":TRIG:RS232:DATA?"))
 
         # Map responses back to user-friendly format
         when_reverse = {"STAR": "START", "ERR": "ERROR", "CERR": "PARITY_ERROR", "DATA": "DATA"}
@@ -4088,11 +4109,11 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError(f"data_value is required when when='{when}'")
 
         # Set trigger mode to I2C
-        scope.instrument.write(":TRIG:MODE IIC")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE IIC")
 
         # Set SCL and SDA channels
-        scope.instrument.write(f":TRIG:IIC:SCL CHAN{scl_channel}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:IIC:SDA CHAN{sda_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:IIC:SCL CHAN{scl_channel}")
+        scope._instr.write(f":TRIG:IIC:SDA CHAN{sda_channel}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -4104,35 +4125,35 @@ def create_server(temp_dir: str) -> FastMCP:
             "DATA": "DATA",
             "ADDRESS_DATA": "ADAT",
         }
-        scope.instrument.write(f":TRIG:IIC:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:IIC:WHEN {when_map[when]}")
 
         # Set address width
-        scope.instrument.write(f":TRIG:IIC:AWID {address_width}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:IIC:AWID {address_width}")
 
         # Set address if needed
         if when in ["ADDRESS", "ADDRESS_DATA"] and address is not None:
-            scope.instrument.write(f":TRIG:IIC:ADDR {address}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:IIC:ADDR {address}")
 
         # Set data if needed
         if when in ["DATA", "ADDRESS_DATA"] and data_value is not None:
-            scope.instrument.write(f":TRIG:IIC:DATA {data_value}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:IIC:DATA {data_value}")
 
         # Map direction to SCPI format
         direction_scpi = I2CDirection[direction].value
-        scope.instrument.write(f":TRIG:IIC:DIR {direction_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:IIC:DIR {direction_scpi}")
 
         # Set voltage levels
-        scope.instrument.write(f":TRIG:IIC:CLEV {clock_level}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":TRIG:IIC:DLEV {data_level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:IIC:CLEV {clock_level}")
+        scope._instr.write(f":TRIG:IIC:DLEV {data_level}")
 
         # Verify configuration
-        actual_scl = scope.instrument.query(":TRIG:IIC:SCL?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_sda = scope.instrument.query(":TRIG:IIC:SDA?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_when = scope.instrument.query(":TRIG:IIC:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_width = scope.instrument.query(":TRIG:IIC:AWID?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_direction = scope.instrument.query(":TRIG:IIC:DIR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_clevel = float(scope.instrument.query(":TRIG:IIC:CLEV?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_dlevel = float(scope.instrument.query(":TRIG:IIC:DLEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_scl = scope._instr.query(":TRIG:IIC:SCL?").strip()
+        actual_sda = scope._instr.query(":TRIG:IIC:SDA?").strip()
+        actual_when = scope._instr.query(":TRIG:IIC:WHEN?").strip()
+        actual_width = scope._instr.query(":TRIG:IIC:AWID?").strip()
+        actual_direction = scope._instr.query(":TRIG:IIC:DIR?").strip()
+        actual_clevel = float(scope._instr.query(":TRIG:IIC:CLEV?"))
+        actual_dlevel = float(scope._instr.query(":TRIG:IIC:DLEV?"))
 
         actual_scl_channel = _parse_channel_from_scpi(actual_scl)
         actual_sda_channel = _parse_channel_from_scpi(actual_sda)
@@ -4141,9 +4162,9 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_address: Optional[int] = None
         actual_data: Optional[int] = None
         if when in ["ADDRESS", "ADDRESS_DATA"]:
-            actual_address = int(scope.instrument.query(":TRIG:IIC:ADDR?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_address = int(scope._instr.query(":TRIG:IIC:ADDR?"))
         if when in ["DATA", "ADDRESS_DATA"]:
-            actual_data = int(scope.instrument.query(":TRIG:IIC:DATA?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_data = int(scope._instr.query(":TRIG:IIC:DATA?"))
 
         # Map responses back
         when_reverse = {
@@ -4223,50 +4244,50 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError("cs_level is required when cs_channel is set")
 
         # Set trigger mode to SPI
-        scope.instrument.write(":TRIG:MODE SPI")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE SPI")
 
         # Set SCLK channel
-        scope.instrument.write(f":TRIG:SPI:CLK CHAN{sclk_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SPI:CLK CHAN{sclk_channel}")
 
         # Set MISO channel if provided
         if miso_channel is not None:
-            scope.instrument.write(f":TRIG:SPI:MISO CHAN{miso_channel}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:SPI:MISO CHAN{miso_channel}")
 
         # Set CS channel if provided
         if cs_channel is not None:
-            scope.instrument.write(f":TRIG:SPI:CS CHAN{cs_channel}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:SPI:CS CHAN{cs_channel}")
 
         # Set clock slope
         slope_map = {"POSITIVE": "POS", "NEGATIVE": "NEG"}
-        scope.instrument.write(f":TRIG:SPI:SLOP {slope_map[clock_slope]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SPI:SLOP {slope_map[clock_slope]}")
 
         # Set when condition
-        scope.instrument.write(":TRIG:SPI:WHEN TOUT")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:SPI:WHEN TOUT")
 
         # Set timeout
-        scope.instrument.write(f":TRIG:SPI:TIM {timeout}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SPI:TIM {timeout}")
 
         # Set data width
-        scope.instrument.write(f":TRIG:SPI:WIDT {data_width}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SPI:WIDT {data_width}")
 
         # Set data value
-        scope.instrument.write(f":TRIG:SPI:DATA {data_value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SPI:DATA {data_value}")
 
         # Set voltage levels
-        scope.instrument.write(f":TRIG:SPI:CLEV {clock_level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:SPI:CLEV {clock_level}")
         if miso_level is not None:
-            scope.instrument.write(f":TRIG:SPI:DLEV {miso_level}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:SPI:DLEV {miso_level}")
         if cs_level is not None:
-            scope.instrument.write(f":TRIG:SPI:SLEV {cs_level}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:SPI:SLEV {cs_level}")
 
         # Verify configuration
-        actual_sclk = scope.instrument.query(":TRIG:SPI:CLK?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_slope = scope.instrument.query(":TRIG:SPI:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_when = scope.instrument.query(":TRIG:SPI:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_timeout = float(scope.instrument.query(":TRIG:SPI:TIM?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_width = int(scope.instrument.query(":TRIG:SPI:WIDT?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_data = int(scope.instrument.query(":TRIG:SPI:DATA?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_clevel = float(scope.instrument.query(":TRIG:SPI:CLEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_sclk = scope._instr.query(":TRIG:SPI:CLK?").strip()
+        actual_slope = scope._instr.query(":TRIG:SPI:SLOP?").strip()
+        actual_when = scope._instr.query(":TRIG:SPI:WHEN?").strip()
+        actual_timeout = float(scope._instr.query(":TRIG:SPI:TIM?"))
+        actual_width = int(scope._instr.query(":TRIG:SPI:WIDT?"))
+        actual_data = int(scope._instr.query(":TRIG:SPI:DATA?"))
+        actual_clevel = float(scope._instr.query(":TRIG:SPI:CLEV?"))
 
         actual_sclk_channel = _parse_channel_from_scpi(actual_sclk)
 
@@ -4277,14 +4298,14 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_cs_level: Optional[float] = None
 
         if miso_channel is not None:
-            miso_source = scope.instrument.query(":TRIG:SPI:MISO?").strip()  # type: ignore[reportAttributeAccessIssue]
+            miso_source = scope._instr.query(":TRIG:SPI:MISO?").strip()
             actual_miso = _parse_channel_from_scpi(miso_source)
-            actual_miso_level = float(scope.instrument.query(":TRIG:SPI:DLEV?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_miso_level = float(scope._instr.query(":TRIG:SPI:DLEV?"))
 
         if cs_channel is not None:
-            cs_source = scope.instrument.query(":TRIG:SPI:CS?").strip()  # type: ignore[reportAttributeAccessIssue]
+            cs_source = scope._instr.query(":TRIG:SPI:CS?").strip()
             actual_cs = _parse_channel_from_scpi(cs_source)
-            actual_cs_level = float(scope.instrument.query(":TRIG:SPI:SLEV?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_cs_level = float(scope._instr.query(":TRIG:SPI:SLEV?"))
 
         slope_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
 
@@ -4356,17 +4377,17 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError(f"data_bytes is required when when='{when}'")
 
         # Set trigger mode to CAN
-        scope.instrument.write(":TRIG:MODE CAN")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE CAN")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:CAN:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:CAN:SOUR CHAN{channel}")
 
         # Set baud rate
-        scope.instrument.write(f":TRIG:CAN:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:CAN:BAUD {baud_rate}")
 
         # Map signal type to SCPI format
         signal_scpi = CANSignalType[signal_type].value
-        scope.instrument.write(f":TRIG:CAN:STYPE {signal_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:CAN:STYPE {signal_scpi}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -4379,39 +4400,39 @@ def create_server(temp_dir: str) -> FastMCP:
             "END": "END",
             "ACK": "ACK",
         }
-        scope.instrument.write(f":TRIG:CAN:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:CAN:WHEN {when_map[when]}")
 
         # Set sample point
-        scope.instrument.write(f":TRIG:CAN:SAMP {sample_point}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:CAN:SAMP {sample_point}")
 
         # Set frame type
         frame_scpi = CANFrameType[frame_type].value
-        scope.instrument.write(f":TRIG:CAN:FTYP {frame_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:CAN:FTYP {frame_scpi}")
 
         # Set ID type
         id_scpi = CANIDType[id_type].value
-        scope.instrument.write(f":TRIG:CAN:ITYP {id_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:CAN:ITYP {id_scpi}")
 
         # Set identifier if needed
         if when in ["IDENTIFIER", "ID_DATA"] and identifier is not None:
-            scope.instrument.write(f":TRIG:CAN:ID {identifier}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:CAN:ID {identifier}")
 
         # Set data if needed
         if when in ["DATA", "ID_DATA"] and data_bytes is not None:
-            scope.instrument.write(f":TRIG:CAN:DATA {data_bytes}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:CAN:DATA {data_bytes}")
 
         # Set trigger level
-        scope.instrument.write(f":TRIG:CAN:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:CAN:LEV {level}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(":TRIG:CAN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_baud = int(scope.instrument.query(":TRIG:CAN:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_signal = scope.instrument.query(":TRIG:CAN:STYPE?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_when = scope.instrument.query(":TRIG:CAN:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_sample = int(scope.instrument.query(":TRIG:CAN:SAMP?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_frame = scope.instrument.query(":TRIG:CAN:FTYP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_id_type = scope.instrument.query(":TRIG:CAN:ITYP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_level = float(scope.instrument.query(":TRIG:CAN:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:CAN:SOUR?").strip()
+        actual_baud = int(scope._instr.query(":TRIG:CAN:BAUD?"))
+        actual_signal = scope._instr.query(":TRIG:CAN:STYPE?").strip()
+        actual_when = scope._instr.query(":TRIG:CAN:WHEN?").strip()
+        actual_sample = int(scope._instr.query(":TRIG:CAN:SAMP?"))
+        actual_frame = scope._instr.query(":TRIG:CAN:FTYP?").strip()
+        actual_id_type = scope._instr.query(":TRIG:CAN:ITYP?").strip()
+        actual_level = float(scope._instr.query(":TRIG:CAN:LEV?"))
 
         actual_channel = _parse_channel_from_scpi(actual_source)
 
@@ -4419,9 +4440,9 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_id: Optional[int] = None
         actual_data: Optional[str] = None
         if when in ["IDENTIFIER", "ID_DATA"]:
-            actual_id = int(scope.instrument.query(":TRIG:CAN:ID?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_id = int(scope._instr.query(":TRIG:CAN:ID?"))
         if when in ["DATA", "ID_DATA"]:
-            actual_data = scope.instrument.query(":TRIG:CAN:DATA?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_data = scope._instr.query(":TRIG:CAN:DATA?").strip()
 
         # Map responses back
         when_reverse = {
@@ -4499,17 +4520,17 @@ def create_server(temp_dir: str) -> FastMCP:
             raise ValueError(f"data_bytes is required when when='{when}'")
 
         # Set trigger mode to LIN
-        scope.instrument.write(":TRIG:MODE LIN")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":TRIG:MODE LIN")
 
         # Set source channel
-        scope.instrument.write(f":TRIG:LIN:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:LIN:SOUR CHAN{channel}")
 
         # Map standard to SCPI format
         standard_scpi = LINStandard[standard].value
-        scope.instrument.write(f":TRIG:LIN:STAN {standard_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:LIN:STAN {standard_scpi}")
 
         # Set baud rate
-        scope.instrument.write(f":TRIG:LIN:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:LIN:BAUD {baud_rate}")
 
         # Map when condition to SCPI format
         when_map = {
@@ -4520,30 +4541,30 @@ def create_server(temp_dir: str) -> FastMCP:
             "ERROR": "ERR",
             "WAKEUP": "AWAK",
         }
-        scope.instrument.write(f":TRIG:LIN:WHEN {when_map[when]}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:LIN:WHEN {when_map[when]}")
 
         # Set error type if ERROR mode
         if when == "ERROR" and error_type is not None:
             error_scpi = LINErrorType[error_type].value
-            scope.instrument.write(f":TRIG:LIN:ETYP {error_scpi}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:LIN:ETYP {error_scpi}")
 
         # Set identifier if needed
         if when in ["IDENTIFIER", "ID_DATA"] and identifier is not None:
-            scope.instrument.write(f":TRIG:LIN:ID {identifier}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:LIN:ID {identifier}")
 
         # Set data if needed
         if when in ["DATA", "ID_DATA"] and data_bytes is not None:
-            scope.instrument.write(f":TRIG:LIN:DATA {data_bytes}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":TRIG:LIN:DATA {data_bytes}")
 
         # Set trigger level
-        scope.instrument.write(f":TRIG:LIN:LEV {level}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":TRIG:LIN:LEV {level}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(":TRIG:LIN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_standard = scope.instrument.query(":TRIG:LIN:STAN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_baud = int(scope.instrument.query(":TRIG:LIN:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_when = scope.instrument.query(":TRIG:LIN:WHEN?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_level = float(scope.instrument.query(":TRIG:LIN:LEV?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(":TRIG:LIN:SOUR?").strip()
+        actual_standard = scope._instr.query(":TRIG:LIN:STAN?").strip()
+        actual_baud = int(scope._instr.query(":TRIG:LIN:BAUD?"))
+        actual_when = scope._instr.query(":TRIG:LIN:WHEN?").strip()
+        actual_level = float(scope._instr.query(":TRIG:LIN:LEV?"))
 
         actual_channel = _parse_channel_from_scpi(actual_source)
 
@@ -4553,7 +4574,7 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_data: Optional[str] = None
 
         if when == "ERROR":
-            err_type = scope.instrument.query(":TRIG:LIN:ETYP?").strip()  # type: ignore[reportAttributeAccessIssue]
+            err_type = scope._instr.query(":TRIG:LIN:ETYP?").strip()
             error_reverse = {
                 "SYNE": "SYNC_ERROR",
                 "PARE": "PARITY_ERROR",
@@ -4563,10 +4584,10 @@ def create_server(temp_dir: str) -> FastMCP:
             actual_error = error_reverse.get(err_type)
 
         if when in ["IDENTIFIER", "ID_DATA"]:
-            actual_id = int(scope.instrument.query(":TRIG:LIN:ID?"))  # type: ignore[reportAttributeAccessIssue]
+            actual_id = int(scope._instr.query(":TRIG:LIN:ID?"))
 
         if when in ["DATA", "ID_DATA"]:
-            actual_data = scope.instrument.query(":TRIG:LIN:DATA?").strip()  # type: ignore[reportAttributeAccessIssue]
+            actual_data = scope._instr.query(":TRIG:LIN:DATA?").strip()
 
         # Map responses back
         when_reverse = {
@@ -4629,44 +4650,44 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing microprocessor buses
         """
         # Set bus mode to PARALLEL
-        scope.instrument.write(f":BUS{bus_number}:MODE PAR")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:MODE PAR")
 
         # Set bus width
-        scope.instrument.write(f":BUS{bus_number}:PAR:WIDT {width}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:PAR:WIDT {width}")
 
         # Set bit assignments
         for bit_pos, chan in bit_assignments.items():
             if bit_pos < 0 or bit_pos >= width:
                 raise ValueError(f"Bit position {bit_pos} out of range for width {width}")
-            scope.instrument.write(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR CHAN{chan}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR CHAN{chan}")
 
         # Set clock channel if provided
         if clock_channel is not None:
-            scope.instrument.write(f":BUS{bus_number}:PAR:CLK CHAN{clock_channel}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":BUS{bus_number}:PAR:CLK CHAN{clock_channel}")
 
         # Set clock polarity
         polarity_scpi = "POS" if clock_polarity == "POSITIVE" else "NEG"
-        scope.instrument.write(f":BUS{bus_number}:PAR:SLOP {polarity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:PAR:SLOP {polarity_scpi}")
 
         # Set bit order
         bit_order_scpi = BitOrder[bit_order].value
-        scope.instrument.write(f":BUS{bus_number}:PAR:END {bit_order_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:PAR:END {bit_order_scpi}")
 
         # Verify configuration
-        actual_width = int(scope.instrument.query(f":BUS{bus_number}:PAR:WIDT?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_polarity = scope.instrument.query(f":BUS{bus_number}:PAR:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_bit_order = scope.instrument.query(f":BUS{bus_number}:PAR:END?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_width = int(scope._instr.query(f":BUS{bus_number}:PAR:WIDT?"))
+        actual_polarity = scope._instr.query(f":BUS{bus_number}:PAR:SLOP?").strip()
+        actual_bit_order = scope._instr.query(f":BUS{bus_number}:PAR:END?").strip()
 
         # Read back bit assignments
         verified_assignments = {}
         for bit_pos in range(actual_width):
-            bit_source = scope.instrument.query(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+            bit_source = scope._instr.query(f":BUS{bus_number}:PAR:BIT{bit_pos}:SOUR?").strip()
             verified_assignments[bit_pos] = _parse_channel_from_scpi(bit_source)
 
         # Read clock channel if configured
         actual_clock: Optional[int] = None
         if clock_channel is not None:
-            clock_source = scope.instrument.query(f":BUS{bus_number}:PAR:CLK?").strip()  # type: ignore[reportAttributeAccessIssue]
+            clock_source = scope._instr.query(f":BUS{bus_number}:PAR:CLK?").strip()
             actual_clock = _parse_channel_from_scpi(clock_source)
 
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -4727,53 +4748,53 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing serial protocols
         """
         # Set bus mode to RS232
-        scope.instrument.write(f":BUS{bus_number}:MODE RS232")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:MODE RS232")
 
         # Set TX channel if provided
         if tx_channel is not None:
-            scope.instrument.write(f":BUS{bus_number}:RS232:TX CHAN{tx_channel}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":BUS{bus_number}:RS232:TX CHAN{tx_channel}")
 
         # Set RX channel if provided
         if rx_channel is not None:
-            scope.instrument.write(f":BUS{bus_number}:RS232:RX CHAN{rx_channel}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":BUS{bus_number}:RS232:RX CHAN{rx_channel}")
 
         # Set polarity
         polarity_scpi = "POS" if polarity == "POSITIVE" else "NEG"
-        scope.instrument.write(f":BUS{bus_number}:RS232:POL {polarity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:RS232:POL {polarity_scpi}")
 
         # Set parity
         parity_scpi = SerialParity[parity].value
-        scope.instrument.write(f":BUS{bus_number}:RS232:PAR {parity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:RS232:PAR {parity_scpi}")
 
         # Set bit order
         bit_order_scpi = BitOrder[bit_order].value
-        scope.instrument.write(f":BUS{bus_number}:RS232:END {bit_order_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:RS232:END {bit_order_scpi}")
 
         # Set baud rate
-        scope.instrument.write(f":BUS{bus_number}:RS232:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:RS232:BAUD {baud_rate}")
 
         # Set data bits
-        scope.instrument.write(f":BUS{bus_number}:RS232:DBIT {data_bits}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:RS232:DBIT {data_bits}")
 
         # Set stop bits
-        scope.instrument.write(f":BUS{bus_number}:RS232:SBIT {stop_bits}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:RS232:SBIT {stop_bits}")
 
         # Verify configuration
-        actual_polarity = scope.instrument.query(f":BUS{bus_number}:RS232:POL?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_parity = scope.instrument.query(f":BUS{bus_number}:RS232:PAR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_bit_order = scope.instrument.query(f":BUS{bus_number}:RS232:END?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_baud = int(scope.instrument.query(f":BUS{bus_number}:RS232:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_data_bits = int(scope.instrument.query(f":BUS{bus_number}:RS232:DBIT?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_stop_bits = scope.instrument.query(f":BUS{bus_number}:RS232:SBIT?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_polarity = scope._instr.query(f":BUS{bus_number}:RS232:POL?").strip()
+        actual_parity = scope._instr.query(f":BUS{bus_number}:RS232:PAR?").strip()
+        actual_bit_order = scope._instr.query(f":BUS{bus_number}:RS232:END?").strip()
+        actual_baud = int(scope._instr.query(f":BUS{bus_number}:RS232:BAUD?"))
+        actual_data_bits = int(scope._instr.query(f":BUS{bus_number}:RS232:DBIT?"))
+        actual_stop_bits = scope._instr.query(f":BUS{bus_number}:RS232:SBIT?").strip()
 
         # Read TX/RX channels if configured
         actual_tx: Optional[int] = None
         actual_rx: Optional[int] = None
         if tx_channel is not None:
-            tx_source = scope.instrument.query(f":BUS{bus_number}:RS232:TX?").strip()  # type: ignore[reportAttributeAccessIssue]
+            tx_source = scope._instr.query(f":BUS{bus_number}:RS232:TX?").strip()
             actual_tx = _parse_channel_from_scpi(tx_source)
         if rx_channel is not None:
-            rx_source = scope.instrument.query(f":BUS{bus_number}:RS232:RX?").strip()  # type: ignore[reportAttributeAccessIssue]
+            rx_source = scope._instr.query(f":BUS{bus_number}:RS232:RX?").strip()
             actual_rx = _parse_channel_from_scpi(rx_source)
 
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -4814,19 +4835,19 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing I2C devices
         """
         # Set bus mode to I2C
-        scope.instrument.write(f":BUS{bus_number}:MODE IIC")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:MODE IIC")
 
         # Set SCL and SDA channels
-        scope.instrument.write(f":BUS{bus_number}:IIC:SCLK:SOUR CHAN{scl_channel}")  # type: ignore[reportAttributeAccessIssue]
-        scope.instrument.write(f":BUS{bus_number}:IIC:SDA:SOUR CHAN{sda_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:IIC:SCLK:SOUR CHAN{scl_channel}")
+        scope._instr.write(f":BUS{bus_number}:IIC:SDA:SOUR CHAN{sda_channel}")
 
         # Set address width
-        scope.instrument.write(f":BUS{bus_number}:IIC:ADDR {address_width}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:IIC:ADDR {address_width}")
 
         # Verify configuration
-        actual_scl = scope.instrument.query(f":BUS{bus_number}:IIC:SCLK:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_sda = scope.instrument.query(f":BUS{bus_number}:IIC:SDA:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_width = scope.instrument.query(f":BUS{bus_number}:IIC:ADDR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_scl = scope._instr.query(f":BUS{bus_number}:IIC:SCLK:SOUR?").strip()
+        actual_sda = scope._instr.query(f":BUS{bus_number}:IIC:SDA:SOUR?").strip()
+        actual_width = scope._instr.query(f":BUS{bus_number}:IIC:ADDR?").strip()
 
         actual_scl_channel = _parse_channel_from_scpi(actual_scl)
         actual_sda_channel = _parse_channel_from_scpi(actual_sda)
@@ -4884,44 +4905,44 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing SPI devices
         """
         # Set bus mode to SPI
-        scope.instrument.write(f":BUS{bus_number}:MODE SPI")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:MODE SPI")
 
         # Set SCLK channel
-        scope.instrument.write(f":BUS{bus_number}:SPI:SCLK:SOUR CHAN{sclk_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:SPI:SCLK:SOUR CHAN{sclk_channel}")
 
         # Set optional channels
         if miso_channel is not None:
-            scope.instrument.write(f":BUS{bus_number}:SPI:MISO:SOUR CHAN{miso_channel}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":BUS{bus_number}:SPI:MISO:SOUR CHAN{miso_channel}")
         if mosi_channel is not None:
-            scope.instrument.write(f":BUS{bus_number}:SPI:MOSI:SOUR CHAN{mosi_channel}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":BUS{bus_number}:SPI:MOSI:SOUR CHAN{mosi_channel}")
         if ss_channel is not None:
-            scope.instrument.write(f":BUS{bus_number}:SPI:SS:SOUR CHAN{ss_channel}")  # type: ignore[reportAttributeAccessIssue]
+            scope._instr.write(f":BUS{bus_number}:SPI:SS:SOUR CHAN{ss_channel}")
 
         # Set clock slope/polarity
         polarity_scpi = "POS" if clock_polarity == "POSITIVE" else "NEG"
-        scope.instrument.write(f":BUS{bus_number}:SPI:SCLK:SLOP {polarity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:SPI:SCLK:SLOP {polarity_scpi}")
 
         # Set data bits
-        scope.instrument.write(f":BUS{bus_number}:SPI:DBIT {data_bits}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:SPI:DBIT {data_bits}")
 
         # Set bit order
         bit_order_scpi = BitOrder[bit_order].value
-        scope.instrument.write(f":BUS{bus_number}:SPI:END {bit_order_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:SPI:END {bit_order_scpi}")
 
         # Set SPI mode
         spi_mode_scpi = SPIMode[spi_mode].value
-        scope.instrument.write(f":BUS{bus_number}:SPI:MODE {spi_mode_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:SPI:MODE {spi_mode_scpi}")
 
         # Set timeout
-        scope.instrument.write(f":BUS{bus_number}:SPI:TIM:TIME {timeout}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:SPI:TIM:TIME {timeout}")
 
         # Verify configuration
-        actual_sclk = scope.instrument.query(f":BUS{bus_number}:SPI:SCLK:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_polarity = scope.instrument.query(f":BUS{bus_number}:SPI:SCLK:SLOP?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_data_bits = int(scope.instrument.query(f":BUS{bus_number}:SPI:DBIT?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_bit_order = scope.instrument.query(f":BUS{bus_number}:SPI:END?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_spi_mode = scope.instrument.query(f":BUS{bus_number}:SPI:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_timeout = float(scope.instrument.query(f":BUS{bus_number}:SPI:TIM:TIME?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_sclk = scope._instr.query(f":BUS{bus_number}:SPI:SCLK:SOUR?").strip()
+        actual_polarity = scope._instr.query(f":BUS{bus_number}:SPI:SCLK:SLOP?").strip()
+        actual_data_bits = int(scope._instr.query(f":BUS{bus_number}:SPI:DBIT?"))
+        actual_bit_order = scope._instr.query(f":BUS{bus_number}:SPI:END?").strip()
+        actual_spi_mode = scope._instr.query(f":BUS{bus_number}:SPI:MODE?").strip()
+        actual_timeout = float(scope._instr.query(f":BUS{bus_number}:SPI:TIM:TIME?"))
 
         actual_sclk_channel = _parse_channel_from_scpi(actual_sclk)
 
@@ -4930,13 +4951,13 @@ def create_server(temp_dir: str) -> FastMCP:
         actual_mosi: Optional[int] = None
         actual_ss: Optional[int] = None
         if miso_channel is not None:
-            miso_source = scope.instrument.query(f":BUS{bus_number}:SPI:MISO:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+            miso_source = scope._instr.query(f":BUS{bus_number}:SPI:MISO:SOUR?").strip()
             actual_miso = _parse_channel_from_scpi(miso_source)
         if mosi_channel is not None:
-            mosi_source = scope.instrument.query(f":BUS{bus_number}:SPI:MOSI:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+            mosi_source = scope._instr.query(f":BUS{bus_number}:SPI:MOSI:SOUR?").strip()
             actual_mosi = _parse_channel_from_scpi(mosi_source)
         if ss_channel is not None:
-            ss_source = scope.instrument.query(f":BUS{bus_number}:SPI:SS:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+            ss_source = scope._instr.query(f":BUS{bus_number}:SPI:SS:SOUR?").strip()
             actual_ss = _parse_channel_from_scpi(ss_source)
 
         polarity_reverse = {"POS": "POSITIVE", "NEG": "NEGATIVE"}
@@ -4988,26 +5009,26 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing automotive networks
         """
         # Set bus mode to CAN
-        scope.instrument.write(f":BUS{bus_number}:MODE CAN")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:MODE CAN")
 
         # Set source channel
-        scope.instrument.write(f":BUS{bus_number}:CAN:SOUR CHAN{source_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:CAN:SOUR CHAN{source_channel}")
 
         # Set signal type
         signal_scpi = CANSignalType[signal_type].value
-        scope.instrument.write(f":BUS{bus_number}:CAN:STYPE {signal_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:CAN:STYPE {signal_scpi}")
 
         # Set baud rate
-        scope.instrument.write(f":BUS{bus_number}:CAN:BAUD {baud_rate}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:CAN:BAUD {baud_rate}")
 
         # Set sample point
-        scope.instrument.write(f":BUS{bus_number}:CAN:SAMP {sample_point}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:CAN:SAMP {sample_point}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(f":BUS{bus_number}:CAN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_signal = scope.instrument.query(f":BUS{bus_number}:CAN:STYPE?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_baud = int(scope.instrument.query(f":BUS{bus_number}:CAN:BAUD?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_sample = int(scope.instrument.query(f":BUS{bus_number}:CAN:SAMP?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(f":BUS{bus_number}:CAN:SOUR?").strip()
+        actual_signal = scope._instr.query(f":BUS{bus_number}:CAN:STYPE?").strip()
+        actual_baud = int(scope._instr.query(f":BUS{bus_number}:CAN:BAUD?"))
+        actual_sample = int(scope._instr.query(f":BUS{bus_number}:CAN:SAMP?"))
 
         actual_source_channel = _parse_channel_from_scpi(actual_source)
 
@@ -5046,23 +5067,23 @@ def create_server(temp_dir: str) -> FastMCP:
         - Analyzing automotive LIN networks
         """
         # Set bus mode to LIN
-        scope.instrument.write(f":BUS{bus_number}:MODE LIN")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:MODE LIN")
 
         # Set source channel
-        scope.instrument.write(f":BUS{bus_number}:LIN:SOUR CHAN{source_channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:LIN:SOUR CHAN{source_channel}")
 
         # Set parity
         parity_scpi = "ENH" if parity == "ENHANCED" else "CLAS"
-        scope.instrument.write(f":BUS{bus_number}:LIN:PAR {parity_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:LIN:PAR {parity_scpi}")
 
         # Set standard
         standard_scpi = LINStandard[standard].value
-        scope.instrument.write(f":BUS{bus_number}:LIN:STAN {standard_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:LIN:STAN {standard_scpi}")
 
         # Verify configuration
-        actual_source = scope.instrument.query(f":BUS{bus_number}:LIN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_parity = scope.instrument.query(f":BUS{bus_number}:LIN:PAR?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_standard = scope.instrument.query(f":BUS{bus_number}:LIN:STAN?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_source = scope._instr.query(f":BUS{bus_number}:LIN:SOUR?").strip()
+        actual_parity = scope._instr.query(f":BUS{bus_number}:LIN:PAR?").strip()
+        actual_standard = scope._instr.query(f":BUS{bus_number}:LIN:STAN?").strip()
 
         actual_source_channel = _parse_channel_from_scpi(actual_source)
 
@@ -5092,10 +5113,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         # Set bus display
         display_cmd = "ON" if enabled else "OFF"
-        scope.instrument.write(f":BUS{bus_number}:DISP {display_cmd}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:DISP {display_cmd}")
 
         # Verify
-        actual_display = scope.instrument.query(f":BUS{bus_number}:DISP?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_display = scope._instr.query(f":BUS{bus_number}:DISP?").strip()
         actual_enabled = actual_display == "1" or actual_display.upper() == "ON"
 
         return BusDisplayResult(
@@ -5120,10 +5141,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         # Set bus format
         format_scpi = BusFormat[format].value
-        scope.instrument.write(f":BUS{bus_number}:FORM {format_scpi}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:FORM {format_scpi}")
 
         # Verify
-        actual_format = scope.instrument.query(f":BUS{bus_number}:FORM?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_format = scope._instr.query(f":BUS{bus_number}:FORM?").strip()
 
         format_reverse = {"HEX": "HEX", "DEC": "DEC", "BIN": "BIN", "ASC": "ASCII"}
 
@@ -5143,7 +5164,7 @@ def create_server(temp_dir: str) -> FastMCP:
         Returns the currently decoded bus data as displayed on the oscilloscope.
         """
         # Query decoded bus data
-        decoded_data = scope.instrument.query(f":BUS{bus_number}:DATA?").strip()  # type: ignore[reportAttributeAccessIssue]
+        decoded_data = scope._instr.query(f":BUS{bus_number}:DATA?").strip()
 
         return BusDataResult(
             bus_number=bus_number,
@@ -5175,7 +5196,7 @@ def create_server(temp_dir: str) -> FastMCP:
         )
 
         # Export bus data to CSV on scope
-        scope.instrument.write(f":BUS{bus_number}:EEXP '{csv_scope_path}'")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":BUS{bus_number}:EEXP '{csv_scope_path}'")
 
         # Wait for export to complete
         await asyncio.sleep(0.5)
@@ -5212,10 +5233,10 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Set acquisition memory depth.
         """
-        scope.instrument.write(f":ACQ:MDEP {memory_depth.value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":ACQ:MDEP {memory_depth.value}")
 
         # Verify the setting
-        actual_depth = float(scope.instrument.query(":ACQ:MDEP?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_depth = float(scope._instr.query(":ACQ:MDEP?"))
 
         # Convert to human-readable format
         if actual_depth >= 1e6:
@@ -5246,10 +5267,10 @@ def create_server(temp_dir: str) -> FastMCP:
         }
 
         scpi_type = type_map[acquisition_type]
-        scope.instrument.write(f":ACQ:TYPE {scpi_type}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":ACQ:TYPE {scpi_type}")
 
         # Verify the setting
-        actual_type = scope.instrument.query(":ACQ:TYPE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_type = scope._instr.query(":ACQ:TYPE?").strip()
 
         return AcquisitionTypeResult(acquisition_type=map_acquisition_type(actual_type))
 
@@ -5263,10 +5284,10 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Note: Only applies when acquisition type is set to AVERAGE. Use with set_acquisition_type("AVERAGE").
         """
-        scope.instrument.write(f":ACQ:AVER {averages}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":ACQ:AVER {averages}")
 
         # Verify the setting
-        actual_averages = int(scope.instrument.query(":ACQ:AVER?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_averages = int(scope._instr.query(":ACQ:AVER?"))
 
         return AcquisitionAveragesResult(
             averages=actual_averages,
@@ -5286,21 +5307,21 @@ def create_server(temp_dir: str) -> FastMCP:
         Ultra Acquisition mode captures waveforms at maximum speed for anomaly detection.
         """
         # Set acquisition type to Ultra
-        scope.instrument.write(":ACQ:TYPE ULTRa")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":ACQ:TYPE ULTRa")
 
         # Set Ultra mode
-        scope.instrument.write(f":ACQ:ULTR:MODE {mode.value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":ACQ:ULTR:MODE {mode.value}")
 
         # Set timeout
-        scope.instrument.write(f":ACQ:ULTR:TIM {timeout}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":ACQ:ULTR:TIM {timeout}")
 
         # Set max frames
-        scope.instrument.write(f":ACQ:ULTR:FMAX {max_frames}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":ACQ:ULTR:FMAX {max_frames}")
 
         # Verify settings
-        actual_mode_str = scope.instrument.query(":ACQ:ULTR:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_timeout = float(scope.instrument.query(":ACQ:ULTR:TIM?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_max_frames = int(scope.instrument.query(":ACQ:ULTR:FMAX?"))  # type: ignore[reportAttributeAccessIssue]
+        actual_mode_str = scope._instr.query(":ACQ:ULTR:MODE?").strip()
+        actual_timeout = float(scope._instr.query(":ACQ:ULTR:TIM?"))
+        actual_max_frames = int(scope._instr.query(":ACQ:ULTR:FMAX?"))
 
         # Map SCPI response to enum
         actual_mode = UltraAcquisitionMode.EDGE if actual_mode_str == "EDGE" else UltraAcquisitionMode.PULSE
@@ -5318,7 +5339,7 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Get current sample rate.
         """
-        sample_rate = float(scope.instrument.query(":ACQ:SRAT?"))  # type: ignore[reportAttributeAccessIssue]
+        sample_rate = float(scope._instr.query(":ACQ:SRAT?"))
 
         # Convert to human-readable format
         if sample_rate >= 1e9:
@@ -5345,7 +5366,7 @@ def create_server(temp_dir: str) -> FastMCP:
         Automatically configures vertical scale, horizontal scale, and trigger
         settings for optimal display of the input signal.
         """
-        scope.instrument.write(":AUT")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":AUT")
 
         # Auto setup takes a moment
         time.sleep(2)
@@ -5358,7 +5379,7 @@ def create_server(temp_dir: str) -> FastMCP:
         """
         Clear the oscilloscope display.
         """
-        scope.instrument.write(":CLE")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":CLE")
 
         return ActionResult(action=SystemAction.CLEAR_DISPLAY)
 
@@ -5372,15 +5393,18 @@ def create_server(temp_dir: str) -> FastMCP:
         including waveforms, measurements, and all visible UI elements.
         """
         # Set image format to PNG
-        scope.instrument.write(":SAVE:IMAGe:FORMat PNG")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":SAVE:IMAGe:FORMat PNG")
 
         # Query the image data
         # Response format: TMC header + binary PNG data + terminator
-        png_data = scope.instrument.query_binary_values(  # type: ignore[reportAttributeAccessIssue]
-            ":SAVE:IMAGe:DATA?",
-            datatype="B",  # Read as bytes
-            is_big_endian=False,
-            container=bytes,  # Return as bytes object
+        png_data = cast(
+            bytes,
+            scope._instr.query_binary_values(
+                ":SAVE:IMAGe:DATA?",
+                datatype="B",  # Read as bytes
+                is_big_endian=False,
+                container=bytes,  # Return as bytes object
+            ),
         )
 
         # Save screenshot to temporary PNG file
@@ -5528,27 +5552,27 @@ def create_server(temp_dir: str) -> FastMCP:
         Note: Counter must be enabled first. Units depend on mode (Hz for frequency, seconds for period, count for totalize).
         """
         # Enable/disable counter
-        scope.instrument.write(f":COUN:ENAB {'ON' if enabled else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":COUN:ENAB {'ON' if enabled else 'OFF'}")
 
         # Set source channel
-        scope.instrument.write(f":COUN:SOUR CHAN{channel}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":COUN:SOUR CHAN{channel}")
 
         # Set mode
-        scope.instrument.write(f":COUN:MODE {mode.value}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":COUN:MODE {mode.value}")
 
         # Set digit resolution
-        scope.instrument.write(f":COUN:NDIG {digits}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":COUN:NDIG {digits}")
 
         # Set totalize enable (statistics)
-        scope.instrument.write(f":COUN:TOT:ENAB {'ON' if totalize_enabled else 'OFF'}")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(f":COUN:TOT:ENAB {'ON' if totalize_enabled else 'OFF'}")
 
         # Verify settings
-        actual_enabled = bool(int(scope.instrument.query(":COUN:ENAB?")))  # type: ignore[reportAttributeAccessIssue]
-        actual_source = scope.instrument.query(":COUN:SOUR?").strip()  # type: ignore[reportAttributeAccessIssue]
+        actual_enabled = bool(int(scope._instr.query(":COUN:ENAB?")))
+        actual_source = scope._instr.query(":COUN:SOUR?").strip()
         actual_channel = _parse_channel_from_scpi(actual_source)
-        actual_mode_str = scope.instrument.query(":COUN:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
-        actual_digits = int(scope.instrument.query(":COUN:NDIG?"))  # type: ignore[reportAttributeAccessIssue]
-        actual_totalize = bool(int(scope.instrument.query(":COUN:TOT:ENAB?")))  # type: ignore[reportAttributeAccessIssue]
+        actual_mode_str = scope._instr.query(":COUN:MODE?").strip()
+        actual_digits = int(scope._instr.query(":COUN:NDIG?"))
+        actual_totalize = bool(int(scope._instr.query(":COUN:TOT:ENAB?")))
 
         # Map SCPI response to enum
         mode_map = {
@@ -5563,7 +5587,7 @@ def create_server(temp_dir: str) -> FastMCP:
         unit = "Hz"  # Default unit
         if actual_enabled:
             try:
-                current_value = float(scope.instrument.query(":COUN:CURR?"))  # type: ignore[reportAttributeAccessIssue]
+                current_value = float(scope._instr.query(":COUN:CURR?"))
                 # Determine unit based on mode
                 if actual_mode == HardwareCounterMode.FREQUENCY:
                     unit = "Hz"
@@ -5594,7 +5618,7 @@ def create_server(temp_dir: str) -> FastMCP:
         Note: Counter must be enabled first. Units depend on mode (Hz for frequency, seconds for period, count for totalize).
         """
         # Get current mode to determine unit
-        mode_str = scope.instrument.query(":COUN:MODE?").strip()  # type: ignore[reportAttributeAccessIssue]
+        mode_str = scope._instr.query(":COUN:MODE?").strip()
         mode_map = {
             "FREQ": ("Hz", HardwareCounterMode.FREQUENCY),
             "PER": ("s", HardwareCounterMode.PERIOD),
@@ -5603,7 +5627,7 @@ def create_server(temp_dir: str) -> FastMCP:
         unit, _ = mode_map.get(mode_str[:3], ("Hz", HardwareCounterMode.FREQUENCY))
 
         # Get current reading
-        value = float(scope.instrument.query(":COUN:CURR?"))  # type: ignore[reportAttributeAccessIssue]
+        value = float(scope._instr.query(":COUN:CURR?"))
 
         return HardwareCounterValueResult(value=value, unit=unit)
 
@@ -5615,7 +5639,7 @@ def create_server(temp_dir: str) -> FastMCP:
 
         Note: Only applies when counter is in statistics mode (totalize enabled).
         """
-        scope.instrument.write(":COUN:TOT:CLE")  # type: ignore[reportAttributeAccessIssue]
+        scope._instr.write(":COUN:TOT:CLE")
 
         return CounterTotalizeResetResult(message="Counter totalize reset")
 
