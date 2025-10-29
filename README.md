@@ -4,34 +4,7 @@ An MCP (Model Context Protocol) server for controlling and querying the Rigol DH
 
 ## Installation
 
-### Create and activate virtual environment
-```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-### Install the package
-```bash
-# Install in editable mode for development
-pip install -e .
-
-# Or just install dependencies
-pip install -r requirements.txt
-```
-
-### Add to Claude Code
-
-After completing the setup steps above, add the MCP server to Claude Code:
-
-```bash
-claude mcp add --scope user rigol-dho824 -- <path-to-this-repo>/venv/bin/rigol-dho824-mcp
-```
-
-Replace `<path-to-this-repo>` with the actual path to this repository.
-
-## Docker Deployment
-
-The easiest way to use this MCP server is via Docker, which eliminates dependency management and provides isolation.
+The recommended way to use this MCP server is via Docker, which eliminates dependency management and provides isolation.
 
 ### Quick Start
 
@@ -54,6 +27,25 @@ docker run -i --rm \
 Replace `192.168.1.100` with your oscilloscope's IP address.
 
 ### Using with Claude Code
+
+You can add the Docker-based MCP server to Claude Code using either method:
+
+#### Option 1: Using `claude mcp add` command
+
+```bash
+claude mcp add --scope local rigol-dho824 -- \
+  docker run -i --rm \
+  -v /tmp/rigol-data:/tmp/rigol \
+  -e RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR" \
+  -e VISA_TIMEOUT=30000 \
+  -e RIGOL_BEEPER_ENABLED=false \
+  -e RIGOL_TEMP_DIR=/tmp/rigol \
+  ghcr.io/aimoda/rigol-dho824-mcp:latest
+```
+
+Replace `192.168.1.100` with your oscilloscope's IP address. After adding, restart Claude Code to load the MCP server.
+
+#### Option 2: Using `.mcp.json` file
 
 Create a `.mcp.json` file in your project directory (or copy from `.mcp.json.example`):
 
@@ -160,7 +152,36 @@ docker build -t rigol-dho824-mcp:local .
 
 Then use `rigol-dho824-mcp:local` as the image name in your configuration.
 
-## Configuration
+## Development Setup
+
+For local development and contributions, you can install the MCP server in a Python virtual environment.
+
+### Create and activate virtual environment
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+### Install the package
+```bash
+# Install in editable mode for development
+pip install -e .
+
+# Or just install dependencies
+pip install -r requirements.txt
+```
+
+### Add to Claude Code
+
+After completing the setup steps above, add the local development MCP server to Claude Code:
+
+```bash
+claude mcp add --scope local rigol-dho824 -- <path-to-this-repo>/venv/bin/rigol-dho824-mcp
+```
+
+Replace `<path-to-this-repo>` with the actual path to this repository.
+
+## Development Configuration
 
 The server can be configured using environment variables. Create a `.env` file from the example:
 
@@ -175,9 +196,11 @@ Then edit `.env` to set your configuration:
   - Leave empty for auto-discovery
 - `VISA_TIMEOUT`: Communication timeout in milliseconds (default: 5000)
 
-## Running the Server
+## Running the Server (Development)
 
-### STDIO Transport (for Claude Desktop)
+For local development and testing, you can run the server directly with Python:
+
+### STDIO Transport
 ```bash
 # Auto-discover oscilloscope
 python -m rigol_dho824_mcp.server
