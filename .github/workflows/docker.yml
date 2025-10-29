@@ -70,6 +70,7 @@ jobs:
             type=raw,value=${{ steps.version.outputs.version_full }},enable={{is_default_branch}}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -90,14 +91,25 @@ jobs:
           with open('server.json', 'r') as f:
               data = json.load(f)
           data['version'] = '${{ steps.version.outputs.version_full }}'
+
+          # Get IMAGE_DIGEST from step output and strip 'sha256:' prefix
+          image_digest = '${{ steps.build.outputs.digest }}'
+          if image_digest.startswith('sha256:'):
+              image_digest = image_digest[7:]  # Remove 'sha256:' prefix
+
           for package in data.get('packages', []):
               if package.get('registryType') == 'oci':
                   # Replace placeholder with actual version tag in identifier
                   # Note: OCI packages must NOT have a separate 'version' field
                   package['identifier'] = package['identifier'].replace('INVALID_PLACEHOLDER', '${{ steps.version.outputs.version_full }}')
+                  # Set the SHA256 hash for integrity verification
+                  if image_digest:
+                      package['fileSha256'] = image_digest
           with open('server.json', 'w') as f:
               json.dump(data, f, indent=2)
           print(f'Updated server.json to version ${{ steps.version.outputs.version_full }}')
+          if image_digest:
+              print(f'Set fileSha256 to {image_digest}')
           PYTHON_SCRIPT
           cat server.json
 
