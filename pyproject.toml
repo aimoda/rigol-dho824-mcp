@@ -3,6 +3,8 @@ name = "rigol-dho824-mcp"
 version = "0.1.0"
 description = "MCP server for Rigol DHO824 oscilloscope"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
 dependencies = [
     "fastmcp>=0.2.0",
