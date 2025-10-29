@@ -25,6 +25,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Fetch full history so git rev-list --count is accurate
+          fetch-depth: 0
 
       - name: Validate server.json against MCP schema
         run: |
