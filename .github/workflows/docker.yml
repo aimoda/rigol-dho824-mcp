@@ -84,14 +84,17 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           VERSION="${{ steps.version.outputs.version_full }}"
-          # Update both server version and package version in server.json
+          # Replace INVALID_PLACEHOLDER with actual version in OCI identifier and update server version
           python3 << 'PYTHON_SCRIPT'
           import json
           with open('server.json', 'r') as f:
               data = json.load(f)
           data['version'] = '${{ steps.version.outputs.version_full }}'
           for package in data.get('packages', []):
-              package['version'] = '${{ steps.version.outputs.version_full }}'
+              if package.get('registryType') == 'oci':
+                  # Replace placeholder with actual version tag in identifier
+                  # Note: OCI packages must NOT have a separate 'version' field
+                  package['identifier'] = package['identifier'].replace('INVALID_PLACEHOLDER', '${{ steps.version.outputs.version_full }}')
           with open('server.json', 'w') as f:
               json.dump(data, f, indent=2)
           print(f'Updated server.json to version ${{ steps.version.outputs.version_full }}')

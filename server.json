@@ -15,8 +15,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/aimoda/rigol-dho824-mcp",
-      "version": "0.1.0",
+      "identifier": "ghcr.io/aimoda/rigol-dho824-mcp:INVALID_PLACEHOLDER",
       "transport": {
         "type": "stdio"
       },
