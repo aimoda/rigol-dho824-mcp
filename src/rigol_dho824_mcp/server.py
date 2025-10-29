@@ -194,6 +194,7 @@ class SystemAction(str, Enum):
     FORCE_TRIGGER = "force_trigger"
     AUTO_SETUP = "auto_setup"
     CLEAR_DISPLAY = "clear_display"
+    RESET = "reset"
 
 
 class TriggerSweep(str, Enum):
@@ -5439,6 +5440,23 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         scope._write_checked(":CLE")
 
         return ActionResult(action=SystemAction.CLEAR_DISPLAY)
+
+    @mcp.tool
+    @with_scope_connection
+    async def reset_instrument() -> ActionResult:
+        """
+        Reset the oscilloscope to factory default settings.
+
+        Restores all settings to their factory defaults, including
+        channel configurations, timebase, trigger settings, and
+        display options.
+        """
+        scope._write_checked("*RST")
+
+        # Reset takes a moment to complete
+        await asyncio.sleep(2)
+
+        return ActionResult(action=SystemAction.RESET)
 
     @mcp.tool
     @with_scope_connection
