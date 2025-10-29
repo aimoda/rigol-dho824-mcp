@@ -121,10 +121,10 @@
         },
         {
           "name": "RIGOL_TEMP_DIR",
-          "description": "Custom directory for temporary files (waveforms, screenshots). Required for Docker if you need to access captured data outside the container. Mount a volume to this path.",
-          "placeholder": "/tmp/rigol",
+          "description": "Host-side path for returned file paths. The container writes to /tmp/rigol internally and translates paths to this value in responses. Must match the host path in your -v mount. Required for Docker usage.",
+          "placeholder": "/tmp/rigol-data",
           "format": "filepath",
-          "isRequired": false
+          "isRequired": true
         }
       ]
     }

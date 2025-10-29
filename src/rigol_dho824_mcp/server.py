@@ -1743,11 +1743,13 @@ class RigolDHO824:
         return float(response.strip())
 
 
-def create_server(temp_dir: str) -> FastMCP:
+def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastMCP:
     """Create the FastMCP server with oscilloscope tools.
 
     Args:
-        temp_dir: Path to temporary directory for storing waveforms and screenshots
+        temp_dir: Path to temporary directory for storing waveforms and screenshots (internal)
+        client_temp_dir: Optional path prefix for translating returned file paths to client-facing paths.
+                        Used in container mode to translate container paths to host paths.
     """
 
     # Load environment variables
@@ -1769,6 +1771,44 @@ def create_server(temp_dir: str) -> FastMCP:
 
     # Create oscilloscope instance
     scope = RigolDHO824(resource_string, timeout)
+
+    # === PATH TRANSLATION FOR CONTAINER MODE ===
+
+    # Normalize temp_dir and client_temp_dir to absolute paths
+    temp_dir_abs = os.path.abspath(temp_dir)
+    client_temp_dir_abs = os.path.abspath(client_temp_dir) if client_temp_dir else None
+
+    def to_client_path(path: Optional[str]) -> Optional[str]:
+        """Translate internal file paths to client-facing paths.
+
+        If client_temp_dir is configured and the path is under temp_dir,
+        replace the temp_dir prefix with client_temp_dir.
+
+        Args:
+            path: File path to translate (or None)
+
+        Returns:
+            Translated path, or original path if translation not applicable
+        """
+        if path is None:
+            return None
+
+        if client_temp_dir_abs is None:
+            return path
+
+        # Normalize the input path to absolute
+        abs_path = os.path.abspath(path)
+
+        # Check if the path is under temp_dir
+        if abs_path.startswith(temp_dir_abs + os.sep) or abs_path == temp_dir_abs:
+            # Get the relative path from temp_dir
+            rel_path = os.path.relpath(abs_path, temp_dir_abs)
+
+            # Build the client-facing path
+            return os.path.join(client_temp_dir_abs, rel_path)
+
+        # Path is not under temp_dir, return unchanged
+        return path
 
     # === DECORATOR FOR SCOPE CONNECTION AND LOCKING ===
 
@@ -2110,7 +2150,7 @@ def create_server(temp_dir: str) -> FastMCP:
                     "x_increment": x_increment,
                     "x_origin": x_origin,
                     "points": len(raw_data),
-                    "file_path": file_path,
+                    "file_path": to_client_path(file_path) or file_path,
                 }
 
                 results.append(result_data)
@@ -2156,7 +2196,7 @@ def create_server(temp_dir: str) -> FastMCP:
                 if scope.download_file_via_ftp(ip_address, wfm_filename, wfm_local_path):
                     wfm_saved_path = wfm_local_path
                     await ctx.report_progress(
-                        progress=1.0, message=f"WFM file saved: {wfm_local_path}"
+                        progress=1.0, message=f"WFM file saved: {to_client_path(wfm_local_path)}"
                     )
                 else:
                     await ctx.report_progress(
@@ -2175,7 +2215,7 @@ def create_server(temp_dir: str) -> FastMCP:
                 progress=1.0, message=f"WFM capture skipped: {str(e)}"
             )
 
-        return WaveformCaptureResult(channels=results, wfm_file_path=wfm_saved_path)
+        return WaveformCaptureResult(channels=results, wfm_file_path=to_client_path(wfm_saved_path))
 
     # === CHANNEL CONTROL TOOLS ===
 
@@ -5220,12 +5260,12 @@ def create_server(temp_dir: str) -> FastMCP:
         bytes_downloaded = os.path.getsize(local_filepath)
 
         await ctx.report_progress(
-            progress=1.0, message=f"Export complete: {local_filepath}"
+            progress=1.0, message=f"Export complete: {to_client_path(local_filepath)}"
         )
 
         return BusExportResult(
             bus_number=bus_number,
-            file_path=local_filepath,
+            file_path=to_client_path(local_filepath) or local_filepath,
             bytes_downloaded=bytes_downloaded,
         )
 
@@ -5441,7 +5481,7 @@ def create_server(temp_dir: str) -> FastMCP:
         finally:
             os.close(fd)
 
-        return ScreenshotResult(file_path=file_path)
+        return ScreenshotResult(file_path=to_client_path(file_path) or file_path)
 
     # === DVM TOOLS ===
 
@@ -5728,35 +5768,57 @@ def main():
 
     args = parser.parse_args()
 
-    # Check if user specified a custom temp directory
-    custom_temp_dir = os.getenv("RIGOL_TEMP_DIR")
+    # Check if container path translation is enabled
+    container_mode = os.getenv("RIGOL_CONTAINER_PATH_TRANSLATION", "false").lower() in ("true", "1", "yes")
 
-    if custom_temp_dir:
-        # User specified temp directory - validate and use it (no auto-cleanup)
-        _validate_temp_directory(custom_temp_dir)
-        temp_dir = custom_temp_dir
+    if container_mode:
+        # === CONTAINER MODE ===
+        # Always use /tmp/rigol as internal temp dir in containers
+        internal_temp_dir = "/tmp/rigol"
+        _validate_temp_directory(internal_temp_dir)
 
-        # Create the server
-        mcp = create_server(temp_dir)
+        # Get the host-side path from RIGOL_TEMP_DIR (required in container mode)
+        client_temp_dir = os.getenv("RIGOL_TEMP_DIR")
+        if not client_temp_dir:
+            import sys
+            print("ERROR: RIGOL_TEMP_DIR is required when RIGOL_CONTAINER_PATH_TRANSLATION is enabled", file=sys.stderr)
+            print("Set RIGOL_TEMP_DIR to the host-side path (e.g., /Users/dave/rigol-data)", file=sys.stderr)
+            sys.exit(1)
+
+        # Create the server with path translation
+        mcp = create_server(internal_temp_dir, client_temp_dir=client_temp_dir)
 
         if args.http:
-            # Run with HTTP transport
             mcp.run(transport="http", host=args.host, port=args.port, path=args.path)
         else:
-            # Default to stdio transport
             mcp.run()
     else:
-        # Use system default temp directory with automatic cleanup on exit
-        with tempfile.TemporaryDirectory(prefix="rigol_dho824_") as temp_dir:
-            # Create the server
+        # === NORMAL MODE ===
+        # Check if user specified a custom temp directory
+        custom_temp_dir = os.getenv("RIGOL_TEMP_DIR")
+
+        if custom_temp_dir:
+            # User specified temp directory - validate and use it (no auto-cleanup)
+            _validate_temp_directory(custom_temp_dir)
+            temp_dir = custom_temp_dir
+
+            # Create the server (no path translation)
             mcp = create_server(temp_dir)
 
             if args.http:
-                # Run with HTTP transport
                 mcp.run(transport="http", host=args.host, port=args.port, path=args.path)
             else:
-                # Default to stdio transport
                 mcp.run()
+        else:
+            # Use system default temp directory with automatic cleanup on exit
+            with tempfile.TemporaryDirectory(prefix="rigol_dho824_") as temp_dir:
+                # Create the server
+                mcp = create_server(temp_dir)
+
+                if args.http:
+                    mcp.run(transport="http", host=args.host, port=args.port, path=args.path)
+                else:
+                    mcp.run()
 
 
 if __name__ == "__main__":

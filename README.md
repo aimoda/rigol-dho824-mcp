@@ -38,11 +38,11 @@ claude mcp add --scope local rigol-dho824 -- \
   -e RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR" \
   -e VISA_TIMEOUT=30000 \
   -e RIGOL_BEEPER_ENABLED=false \
-  -e RIGOL_TEMP_DIR=/tmp/rigol \
+  -e RIGOL_TEMP_DIR=/tmp/rigol-data \
   ghcr.io/aimoda/rigol-dho824-mcp:latest
 ```
 
-Replace `192.168.1.100` with your oscilloscope's IP address. After adding, restart Claude Code to load the MCP server.
+Replace `192.168.1.100` with your oscilloscope's IP address. The `-v /tmp/rigol-data:/tmp/rigol` mounts the host directory, and `-e RIGOL_TEMP_DIR=/tmp/rigol-data` tells the server to return paths using the host prefix. After adding, restart Claude Code to load the MCP server.
 
 #### Option 2: Using `.mcp.json` file
 
@@ -74,47 +74,47 @@ Create a `.mcp.json` file in your project directory (or copy from `.mcp.json.exa
         "RIGOL_RESOURCE": "TCPIP0::192.168.1.100::inst0::INSTR",
         "VISA_TIMEOUT": "30000",
         "RIGOL_BEEPER_ENABLED": "false",
-        "RIGOL_TEMP_DIR": "/tmp/rigol"
+        "RIGOL_TEMP_DIR": "/tmp/rigol-data"
       }
     }
   }
 }
 ```
 
-Replace `192.168.1.100` with your oscilloscope's IP address.
+Replace `192.168.1.100` with your oscilloscope's IP address. The server will translate container paths (`/tmp/rigol/*`) to host paths (`/tmp/rigol-data/*`) in all returned file paths.
 
 After configuring, restart Claude Code to load the MCP server.
 
-### Optional Environment Variables
+### Environment Variables
 
+- `RIGOL_RESOURCE`: **Required** - VISA resource string for connecting to the oscilloscope (e.g., `TCPIP0::192.168.1.100::inst0::INSTR`)
+- `RIGOL_TEMP_DIR`: **Required for Docker** - Host-side path for returned file paths. The container always writes to `/tmp/rigol` internally and translates paths to this value in responses. Must match the host path in your `-v` mount. Outside Docker, this sets the directory for temporary files (waveforms, screenshots); if not set, uses system default temp directory.
 - `VISA_TIMEOUT`: Communication timeout in milliseconds (default: 30000)
 - `RIGOL_BEEPER_ENABLED`: Enable/disable oscilloscope beeper sounds (default: false)
-- `RIGOL_TEMP_DIR`: Custom directory for temporary files (waveforms, screenshots). If not set, uses system default temp directory. **Required for Docker deployments** if you need to access captured data outside the container.
 
 ### Accessing Temp Files in Docker
 
-By default, temporary files (waveform captures, screenshots) are stored inside the Docker container and are inaccessible from the host system. To access these files, you must:
+The container writes temporary files (waveform captures, screenshots) to `/tmp/rigol` internally. To access these files from your host machine:
 
 1. **Create a directory on your host** for storing temporary files:
    ```bash
    mkdir -p /tmp/rigol-data
    ```
 
-2. **Mount this directory as a volume** in your Docker configuration (see the `.mcp.json` example above):
-   ```json
-   "-v",
-   "/tmp/rigol-data:/tmp/rigol",
+2. **Mount this directory as a volume** and **set `RIGOL_TEMP_DIR`** in your Docker configuration:
+   ```bash
+   docker run -i --rm \
+     -v /tmp/rigol-data:/tmp/rigol \
+     -e RIGOL_TEMP_DIR=/tmp/rigol-data \
+     ...
    ```
-   This maps the host directory `/tmp/rigol-data` to `/tmp/rigol` inside the container.
 
-3. **Set the `RIGOL_TEMP_DIR` environment variable** to point to the mounted directory inside the container:
-   ```json
-   "RIGOL_TEMP_DIR": "/tmp/rigol"
-   ```
+The server automatically translates all returned file paths from the container path (`/tmp/rigol/*`) to the host path (`/tmp/rigol-data/*`), so you can directly access files at the paths shown in tool responses.
 
 **Important notes:**
-- The directory specified in `RIGOL_TEMP_DIR` must exist before starting the server
-- Temporary files are **not automatically cleaned up** when using a custom temp directory
+- The host directory (`/tmp/rigol-data` in examples) must exist before starting the server
+- `RIGOL_TEMP_DIR` must match the host-side path in your `-v` mount
+- Temporary files are **not automatically cleaned up**
 - You are responsible for manually cleaning up old waveform and screenshot files
 - Files will be organized in subdirectories like `waveform_capture_<timestamp>/` for waveforms and `screenshot_<timestamp>.png` for screenshots
 
