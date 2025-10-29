@@ -6,7 +6,7 @@ An MCP (Model Context Protocol) server for controlling and querying the Rigol DH
 
 The recommended way to use this MCP server is via Docker, which eliminates dependency management and provides isolation.
 
-### Quick Start
+### Quick Start with Claude Code
 
 Pull the pre-built image from GitHub Container Registry:
 
@@ -14,21 +14,11 @@ Pull the pre-built image from GitHub Container Registry:
 docker pull ghcr.io/aimoda/rigol-dho824-mcp:latest
 ```
 
-### Required Configuration
+### Configuration
 
-**IMPORTANT:** You must provide the `RIGOL_RESOURCE` environment variable when running the container. This tells the server how to connect to your network-connected oscilloscope.
+**IMPORTANT:** You must provide the `RIGOL_RESOURCE` environment variable with your oscilloscope's IP address (e.g., `TCPIP0::192.168.1.100::inst0::INSTR`).
 
-```bash
-docker run -i --rm \
-  -e RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR" \
-  ghcr.io/aimoda/rigol-dho824-mcp:latest
-```
-
-Replace `192.168.1.100` with your oscilloscope's IP address.
-
-### Using with Claude Code
-
-You can add the Docker-based MCP server to Claude Code using either method:
+Add the Docker-based MCP server to Claude Code using either method:
 
 #### Option 1: Using `claude mcp add` command
 
