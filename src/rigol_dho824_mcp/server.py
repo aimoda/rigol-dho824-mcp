@@ -1361,7 +1361,7 @@ class BusExportResult(TypedDict):
 class RigolDHO824:
     """Class to manage communication with Rigol DHO824 oscilloscope."""
 
-    def __init__(self, resource_string: Optional[str] = None, timeout: int = 5000):
+    def __init__(self, resource_string: str, timeout: int = 5000):
         """
         Initialize the oscilloscope connection.
 
@@ -1526,46 +1526,18 @@ class RigolDHO824:
 
         print("Opening up new connection")
         try:
-            if self.resource_string:
-                # Use provided resource string
-                try:
-                    self.instrument = cast(
-                        pyvisa.resources.MessageBasedResource,
-                        self.rm.open_resource(
-                            self.resource_string,
-                            access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
-                        ),
-                    )
-                except Exception as e:
-                    self.last_connection_error = f"Failed to open resource '{self.resource_string}': {str(e)}"
-                    return False
-            else:
-                # Auto-discover Rigol oscilloscope
-                try:
-                    resources = self.rm.list_resources()
-                    rigol_resources = [
-                        r for r in resources if "RIGOL" in r.upper() or "0x1AB1" in r
-                    ]
-
-                    if not rigol_resources:
-                        # Provide detailed info about what was found
-                        if resources:
-                            self.last_connection_error = f"No Rigol devices found. Available resources: {', '.join(resources)}"
-                        else:
-                            self.last_connection_error = "No VISA resources found. Check that the oscilloscope is connected and powered on."
-                        return False
-
-                    # Try to connect to first Rigol device found
-                    self.instrument = cast(
-                        pyvisa.resources.MessageBasedResource,
-                        self.rm.open_resource(
-                            rigol_resources[0],
-                            access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
-                        ),
-                    )
-                except Exception as e:
-                    self.last_connection_error = f"Failed to auto-discover or connect to Rigol device: {str(e)}"
-                    return False
+            # Use provided resource string
+            try:
+                self.instrument = cast(
+                    pyvisa.resources.MessageBasedResource,
+                    self.rm.open_resource(
+                        self.resource_string,
+                        access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
+                    ),
+                )
+            except Exception as e:
+                self.last_connection_error = f"Failed to open resource '{self.resource_string}': {str(e)}"
+                return False
 
             self._instr.timeout = self.timeout
 
@@ -1782,7 +1754,13 @@ def create_server(temp_dir: str) -> FastMCP:
     load_dotenv()
 
     # Get configuration from environment
-    resource_string = os.getenv("RIGOL_RESOURCE", "")
+    resource_string = os.getenv("RIGOL_RESOURCE")
+    if not resource_string:
+        raise ValueError(
+            "RIGOL_RESOURCE environment variable is required. "
+            "Set it to your oscilloscope's VISA resource string (e.g., 'TCPIP::192.168.1.100::INSTR')"
+        )
+
     timeout = int(os.getenv("VISA_TIMEOUT", "30000"))
     beeper_enabled = os.getenv("RIGOL_BEEPER_ENABLED", "false").lower() in ("true", "1", "yes")
 
@@ -1790,7 +1768,7 @@ def create_server(temp_dir: str) -> FastMCP:
     mcp = FastMCP("rigol-dho824", stateless_http=True)
 
     # Create oscilloscope instance
-    scope = RigolDHO824(resource_string if resource_string else None, timeout)
+    scope = RigolDHO824(resource_string, timeout)
 
     # === DECORATOR FOR SCOPE CONNECTION AND LOCKING ===
 
@@ -1811,8 +1789,10 @@ def create_server(temp_dir: str) -> FastMCP:
         async def wrapper(*args, **kwargs):
             async with scope.lock:
                 if not scope.connect():
+                    error_detail = scope.last_connection_error or "Unknown error"
                     raise Exception(
-                        "Failed to connect to oscilloscope. Check connection and RIGOL_RESOURCE environment variable."
+                        f"Failed to connect to oscilloscope at '{scope.resource_string}'. "
+                        f"Details: {error_detail}"
                     )
                 # Clear any leftover errors from previous operations
                 scope._write_checked("*CLS")
