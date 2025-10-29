@@ -6,7 +6,6 @@ import hashlib
 import io
 import os
 import tempfile
-import time
 import json
 from datetime import datetime
 from enum import Enum
@@ -2183,7 +2182,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
             # Save memory waveform to scope
             scope._write_checked(f":SAVE:MEMory:WAVeform {wfm_scope_path}")
-            time.sleep(5)  # Wait for save to complete
+            await asyncio.sleep(5)  # Wait for save to complete
 
             # Check save status
             scope._query_checked(":SAVE:STATus?")
@@ -2601,7 +2600,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         scope._write_checked(":RUN")
 
         # Give it a moment to start
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
 
         # Check trigger status
         status = scope._query_checked(":TRIG:STAT?").strip()
@@ -2619,7 +2618,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         scope._write_checked(":STOP")
 
         # Give it a moment to stop
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
 
         # Check trigger status
         status = scope._query_checked(":TRIG:STAT?").strip()
@@ -2637,7 +2636,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         scope._write_checked(":SING")
 
         # Give it a moment to arm
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
 
         # Check trigger status
         status = scope._query_checked(":TRIG:STAT?").strip()
@@ -2720,7 +2719,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         scope._write_checked(":RECord:WRECord:OPERate RUN")
 
         # Brief pause for settings to take effect
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
 
         # Query current state to confirm
         enabled = bool(int(scope._query_checked(":RECord:WRECord:ENABle?")))
@@ -2749,7 +2748,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         scope._write_checked(":RECord:WRECord:OPERate STOP")
 
         # Brief pause
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
 
         # Query current state
         enabled = bool(int(scope._query_checked(":RECord:WRECord:ENABle?")))
@@ -5427,7 +5426,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         scope._write_checked(":AUT")
 
         # Auto setup takes a moment
-        time.sleep(2)
+        await asyncio.sleep(2)
 
         return ActionResult(action=SystemAction.AUTO_SETUP)
 
