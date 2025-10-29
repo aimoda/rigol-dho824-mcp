@@ -18,6 +18,15 @@ docker pull ghcr.io/aimoda/rigol-dho824-mcp:latest
 
 **IMPORTANT:** You must provide the `RIGOL_RESOURCE` environment variable with your oscilloscope's IP address (e.g., `TCPIP0::192.168.1.100::inst0::INSTR`).
 
+#### Using Environment Variables with Docker
+
+You can configure the Docker container with environment variables in two ways:
+
+1. **Hardcoded values** (shown in examples below): `-e RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR"`
+2. **Pass-through from host** (recommended): `-e RIGOL_RESOURCE` (without `=value`)
+
+When you use `-e VARIABLE_NAME` without a value, Docker automatically passes through the variable from your host environment. This is useful if you have environment variables already set in your shell (e.g., in `~/.bashrc` or `~/.zshrc`).
+
 Add the Docker-based MCP server to Claude Code using either method:
 
 #### Option 1: Using `claude mcp add` command
