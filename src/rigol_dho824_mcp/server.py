@@ -1643,22 +1643,6 @@ class RigolDHO824:
             }
         return None
 
-    def is_dho900_series(self) -> bool:
-        """
-        Check if connected scope is DHO900 series.
-
-        DHO900 series scopes support additional features like LIN bus decode
-        and LIN trigger that are not available on DHO800 series.
-
-        Returns:
-            True if scope is DHO900 series, False otherwise
-        """
-        identity = self.parse_identity()
-        if not identity:
-            return False
-        model = identity.get("model", "")
-        return model.startswith("DHO9")
-
     def extract_ip_from_resource(self) -> Optional[str]:
         """
         Extract IP address from VISA resource string.
@@ -4538,10 +4522,6 @@ def create_server(temp_dir: str) -> FastMCP:
         - Detecting LIN protocol errors
         - Capturing wakeup signals
         """
-        # Check if hardware supports LIN (DHO900 series only)
-        if not scope.is_dho900_series():
-            raise Exception("LIN trigger is only available on DHO900 series oscilloscopes")
-
         # Validate modes that require specific parameters
         if when == "ERROR" and error_type is None:
             raise ValueError("error_type is required when when='ERROR'")
@@ -5112,10 +5092,6 @@ def create_server(temp_dir: str) -> FastMCP:
         - Decoding LIN communication
         - Analyzing automotive LIN networks
         """
-        # Check if hardware supports LIN (DHO900 series only)
-        if not scope.is_dho900_series():
-            raise Exception("LIN bus decode is only available on DHO900 series oscilloscopes")
-
         # Set bus mode to LIN
         scope._write_checked(f":BUS{bus_number}:MODE LIN")
 
