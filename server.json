@@ -21,6 +21,79 @@
       "transport": {
         "type": "stdio"
       },
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "positional",
+          "value": "run",
+          "description": "The runtime command to execute"
+        },
+        {
+          "type": "named",
+          "name": "-i",
+          "description": "Run container in interactive mode"
+        },
+        {
+          "type": "named",
+          "name": "--rm",
+          "description": "Automatically remove the container when it exits"
+        },
+        {
+          "type": "named",
+          "name": "-v",
+          "description": "Bind mount a host directory into the container"
+        },
+        {
+          "type": "positional",
+          "value": "/tmp/rigol-data:/tmp/rigol",
+          "description": "Bind mount path for waveform and screenshot data"
+        },
+        {
+          "type": "named",
+          "name": "-e",
+          "description": "Set an environment variable in the runtime"
+        },
+        {
+          "type": "positional",
+          "value": "RIGOL_RESOURCE",
+          "description": "Environment variable name"
+        },
+        {
+          "type": "named",
+          "name": "-e",
+          "description": "Set an environment variable in the runtime"
+        },
+        {
+          "type": "positional",
+          "value": "VISA_TIMEOUT",
+          "description": "Environment variable name"
+        },
+        {
+          "type": "named",
+          "name": "-e",
+          "description": "Set an environment variable in the runtime"
+        },
+        {
+          "type": "positional",
+          "value": "RIGOL_BEEPER_ENABLED",
+          "description": "Environment variable name"
+        },
+        {
+          "type": "named",
+          "name": "-e",
+          "description": "Set an environment variable in the runtime"
+        },
+        {
+          "type": "positional",
+          "value": "RIGOL_TEMP_DIR",
+          "description": "Environment variable name"
+        },
+        {
+          "type": "positional",
+          "value": "ghcr.io/aimoda/rigol-dho824-mcp",
+          "description": "The container image to run"
+        }
+      ],
       "environmentVariables": [
         {
           "name": "RIGOL_RESOURCE",
