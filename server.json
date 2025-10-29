@@ -21,7 +21,6 @@
     {
       "registryType": "oci",
       "identifier": "ghcr.io/aimoda/rigol-dho824-mcp:INVALID_PLACEHOLDER",
-      "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "transport": {
         "type": "stdio"
       },
@@ -129,5 +128,14 @@
         }
       ]
     }
-  ]
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "tool": "github-actions",
+      "version": "1.0.0",
+      "buildInfo": {
+        "imageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  }
 }

@@ -102,14 +102,22 @@ jobs:
                   # Replace placeholder with actual version tag in identifier
                   # Note: OCI packages must NOT have a separate 'version' field
                   package['identifier'] = package['identifier'].replace('INVALID_PLACEHOLDER', '${{ steps.version.outputs.version_full }}')
-                  # Set the SHA256 hash for integrity verification
-                  if image_digest:
-                      package['fileSha256'] = image_digest
+
+          # Set the SHA256 hash in _meta for transparency (OCI packages don't support fileSha256)
+          if image_digest:
+              if '_meta' not in data:
+                  data['_meta'] = {}
+              if 'io.modelcontextprotocol.registry/publisher-provided' not in data['_meta']:
+                  data['_meta']['io.modelcontextprotocol.registry/publisher-provided'] = {}
+              if 'buildInfo' not in data['_meta']['io.modelcontextprotocol.registry/publisher-provided']:
+                  data['_meta']['io.modelcontextprotocol.registry/publisher-provided']['buildInfo'] = {}
+              data['_meta']['io.modelcontextprotocol.registry/publisher-provided']['buildInfo']['imageSha256'] = image_digest
+
           with open('server.json', 'w') as f:
               json.dump(data, f, indent=2)
           print(f'Updated server.json to version ${{ steps.version.outputs.version_full }}')
           if image_digest:
-              print(f'Set fileSha256 to {image_digest}')
+              print(f'Set imageSha256 to {image_digest}')
           PYTHON_SCRIPT
           cat server.json
 
