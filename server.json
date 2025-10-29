@@ -4,7 +4,7 @@
   "title": "Rigol DHO824 Oscilloscope",
   "description": "Control and query Rigol DHO824 oscilloscope for waveform capture and measurements",
   "version": "0.1.0",
-  "websiteUrl": "https://github.com/aimoda/rigol-dho824-mcp",
+  "websiteUrl": "https://aimoda.github.io/rigol-dho824-mcp/",
   "icons": [
     {
       "src": "https://rigol-dho824-mcp.email.ai.moda/bimi/logo.svg",
