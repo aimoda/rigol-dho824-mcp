@@ -53,7 +53,7 @@ jobs:
           BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9-]/-/g')
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "version_full=$VERSION+$REV_COUNT.$BRANCH_NAME.$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "version_full=$VERSION-$REV_COUNT.$BRANCH_NAME.$SHORT_SHA" >> $GITHUB_OUTPUT
 
       - name: Extract metadata (tags, labels)
         id: meta
@@ -81,32 +81,32 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Update server.json version
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref == 'refs/heads/main'
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ steps.version.outputs.version_full }}"
           # Update both server version and package version in server.json
-          python3 -c "
-import json, sys
-with open('server.json', 'r') as f:
-    data = json.load(f)
-data['version'] = '$VERSION'
-for package in data.get('packages', []):
-    package['version'] = '$VERSION'
-with open('server.json', 'w') as f:
-    json.dump(data, f, indent=2)
-print(f'Updated server.json to version $VERSION')
-"
+          python3 << 'PYTHON_SCRIPT'
+          import json
+          with open('server.json', 'r') as f:
+              data = json.load(f)
+          data['version'] = '${{ steps.version.outputs.version_full }}'
+          for package in data.get('packages', []):
+              package['version'] = '${{ steps.version.outputs.version_full }}'
+          with open('server.json', 'w') as f:
+              json.dump(data, f, indent=2)
+          print(f'Updated server.json to version ${{ steps.version.outputs.version_full }}')
+          PYTHON_SCRIPT
           cat server.json
 
       - name: Install MCP Publisher
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref == 'refs/heads/main'
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
 
       - name: Login to MCP Registry
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref == 'refs/heads/main'
         run: ./mcp-publisher login github-oidc
 
       - name: Publish to MCP Registry
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref == 'refs/heads/main'
         run: ./mcp-publisher publish
