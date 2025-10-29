@@ -1,0 +1,56 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.aimoda/rigol-dho824-mcp",
+  "title": "Rigol DHO824 Oscilloscope",
+  "description": "Control and query Rigol DHO824 oscilloscope for waveform capture and measurements",
+  "version": "0.1.0",
+  "websiteUrl": "https://github.com/aimoda/rigol-dho824-mcp",
+  "icons": [
+    {
+      "src": "https://rigol-dho824-mcp.email.ai.moda/bimi/logo.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "oci",
+      "registryBaseUrl": "https://ghcr.io",
+      "identifier": "aimoda/rigol-dho824-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "RIGOL_RESOURCE",
+          "description": "VISA resource string for connecting to the oscilloscope (e.g., 'TCPIP0::192.168.1.100::inst0::INSTR'). Leave empty for auto-discovery.",
+          "placeholder": "TCPIP0::192.168.1.100::inst0::INSTR",
+          "isRequired": false
+        },
+        {
+          "name": "VISA_TIMEOUT",
+          "description": "Communication timeout in milliseconds",
+          "default": "30000",
+          "format": "number",
+          "isRequired": false
+        },
+        {
+          "name": "RIGOL_BEEPER_ENABLED",
+          "description": "Enable or disable oscilloscope beeper sounds",
+          "default": "false",
+          "format": "boolean",
+          "choices": ["true", "false"],
+          "isRequired": false
+        },
+        {
+          "name": "RIGOL_TEMP_DIR",
+          "description": "Custom directory for temporary files (waveforms, screenshots). Required for Docker if you need to access captured data outside the container. Mount a volume to this path.",
+          "placeholder": "/tmp/rigol",
+          "format": "filepath",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

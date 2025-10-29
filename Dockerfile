@@ -16,6 +16,9 @@ RUN pip install --no-cache-dir --prefix=/install .
 # Runtime stage
 FROM python:3.13-slim
 
+# MCP registry validation label
+LABEL io.modelcontextprotocol.server.name="io.github.aimoda/rigol-dho824-mcp"
+
 # Create non-root user
 RUN useradd -m -u 1000 mcp && \
     mkdir -p /app && \

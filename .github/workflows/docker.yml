@@ -20,10 +20,16 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write  # Required for MCP registry OIDC authentication
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate server.json against MCP schema
+        run: |
+          pip install check-jsonschema
+          check-jsonschema --schemafile https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json server.json
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -73,3 +79,34 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Update server.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Update both server version and package version in server.json
+          python3 -c "
+import json, sys
+with open('server.json', 'r') as f:
+    data = json.load(f)
+data['version'] = '$VERSION'
+for package in data.get('packages', []):
+    package['version'] = '$VERSION'
+with open('server.json', 'w') as f:
+    json.dump(data, f, indent=2)
+print(f'Updated server.json to version $VERSION')
+"
+          cat server.json
+
+      - name: Install MCP Publisher
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Login to MCP Registry
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: ./mcp-publisher publish
