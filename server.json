@@ -127,6 +127,38 @@
           "isRequired": true
         }
       ]
+    },
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "rigol-dho824-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "RIGOL_RESOURCE",
+          "description": "VISA resource string for connecting to the oscilloscope (e.g., 'TCPIP0::192.168.1.100::inst0::INSTR'). Leave empty for auto-discovery.",
+          "placeholder": "TCPIP0::192.168.1.100::inst0::INSTR",
+          "isRequired": false
+        },
+        {
+          "name": "VISA_TIMEOUT",
+          "description": "Communication timeout in milliseconds",
+          "default": "30000",
+          "format": "number",
+          "isRequired": false
+        },
+        {
+          "name": "RIGOL_BEEPER_ENABLED",
+          "description": "Enable or disable oscilloscope beeper sounds",
+          "default": "false",
+          "format": "boolean",
+          "choices": ["true", "false"],
+          "isRequired": false
+        }
+      ]
     }
   ],
   "_meta": {

@@ -110,6 +110,9 @@ jobs:
                   # Replace placeholder with actual version tag in identifier
                   # Note: OCI packages must NOT have a separate 'version' field
                   package['identifier'] = package['identifier'].replace('INVALID_PLACEHOLDER', '${{ steps.version.outputs.version_full }}')
+              elif package.get('registryType') == 'pypi':
+                  # Update version field for PyPI packages
+                  package['version'] = '${{ steps.version.outputs.version }}'
 
           # Set the SHA256 hash in _meta for transparency (OCI packages don't support fileSha256)
           if image_digest:
