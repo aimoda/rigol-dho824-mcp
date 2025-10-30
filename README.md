@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server for controlling and querying the Rigol DHO824 oscilloscope.
 
-![Demo of oscilloscope in action](demo.webp)
+![Demo of oscilloscope in action](https://raw.githubusercontent.com/aimoda/rigol-dho824-mcp/main/demo.webp)
 
 ## Hardware Requirements
 
