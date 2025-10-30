@@ -56,6 +56,7 @@ claude mcp add --scope local rigol-dho824 -- \
   -e RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR" \
   -e VISA_TIMEOUT=30000 \
   -e RIGOL_BEEPER_ENABLED=false \
+  -e RIGOL_AUTO_SCREENSHOT=false \
   -e RIGOL_TEMP_DIR=/tmp/rigol-data \
   ghcr.io/aimoda/rigol-dho824-mcp:latest
 ```
@@ -85,6 +86,8 @@ Create a `.mcp.json` file in your project directory (or copy from `.mcp.json.exa
         "-e",
         "RIGOL_BEEPER_ENABLED",
         "-e",
+        "RIGOL_AUTO_SCREENSHOT",
+        "-e",
         "RIGOL_TEMP_DIR",
         "ghcr.io/aimoda/rigol-dho824-mcp:latest"
       ],
@@ -92,6 +95,7 @@ Create a `.mcp.json` file in your project directory (or copy from `.mcp.json.exa
         "RIGOL_RESOURCE": "TCPIP0::192.168.1.100::inst0::INSTR",
         "VISA_TIMEOUT": "30000",
         "RIGOL_BEEPER_ENABLED": "false",
+        "RIGOL_AUTO_SCREENSHOT": "false",
         "RIGOL_TEMP_DIR": "/tmp/rigol-data"
       }
     }
@@ -109,6 +113,7 @@ After configuring, restart Claude Code to load the MCP server.
 - `RIGOL_TEMP_DIR`: **Required for Docker** - Host-side path for returned file paths. The container always writes to `/tmp/rigol` internally and translates paths to this value in responses. Must match the host path in your `-v` mount. Outside Docker, this sets the directory for temporary files (waveforms, screenshots); if not set, uses system default temp directory.
 - `VISA_TIMEOUT`: Communication timeout in milliseconds (default: 30000)
 - `RIGOL_BEEPER_ENABLED`: Enable/disable oscilloscope beeper sounds (default: false)
+- `RIGOL_AUTO_SCREENSHOT`: Automatically capture screenshot after each MCP tool execution for visualization/debugging (default: false). Screenshots are saved with human-readable timestamp format (e.g., `auto_screenshot_20251030_143045_123.png`) for chronological sorting.
 
 ### Accessing Temp Files in Docker
 

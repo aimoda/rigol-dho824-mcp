@@ -1753,6 +1753,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
     timeout = int(os.getenv("VISA_TIMEOUT", "30000"))
     beeper_enabled = os.getenv("RIGOL_BEEPER_ENABLED", "false").lower() in ("true", "1", "yes")
+    auto_screenshot_enabled = os.getenv("RIGOL_AUTO_SCREENSHOT", "false").lower() in ("true", "1", "yes")
 
     # Create MCP server
     mcp = FastMCP("rigol-dho824", stateless_http=True)
@@ -1798,6 +1799,55 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         # Path is not under temp_dir, return unchanged
         return path
 
+    # === INTERNAL HELPER FUNCTIONS ===
+
+    async def _capture_screenshot_internal(filename_prefix: str) -> Optional[str]:
+        """
+        Internal helper to capture a screenshot with a custom filename prefix.
+
+        Args:
+            filename_prefix: Prefix for the screenshot filename (without extension)
+
+        Returns:
+            File path of saved screenshot (client-translated if applicable), or None if capture failed
+        """
+        try:
+            # Set image format to PNG
+            scope._write_checked(":SAVE:IMAGe:FORMat PNG")
+
+            # Wait for operations to complete and on-screen messages to clear
+            scope._query_checked("*OPC?")
+            await asyncio.sleep(3.5)
+
+            # Query the image data
+            # Response format: TMC header + binary PNG data + terminator
+            png_data = cast(
+                bytes,
+                scope._query_binary_values_checked(
+                    ":SAVE:IMAGe:DATA?",
+                    datatype="B",  # Read as bytes
+                    is_big_endian=False,
+                    container=bytes,  # Return as bytes object
+                ),
+            )
+
+            # Save screenshot to temporary PNG file
+            fd, file_path = tempfile.mkstemp(
+                suffix=".png",
+                prefix=f"{filename_prefix}_",
+                dir=temp_dir,
+            )
+            try:
+                # Write PNG data to file
+                os.write(fd, png_data)
+            finally:
+                os.close(fd)
+
+            return to_client_path(file_path) or file_path
+        except Exception:
+            # Best-effort: don't let screenshot failures interrupt the main operation
+            return None
+
     # === DECORATOR FOR SCOPE CONNECTION AND LOCKING ===
 
     def with_scope_connection(func):
@@ -1832,6 +1882,14 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
                 try:
                     result = await func(*args, **kwargs)
+
+                    # Optionally capture post-execution screenshot for debugging/visualization
+                    if auto_screenshot_enabled:
+                        # Use same timestamp format as get_screenshot for consistency
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                        screenshot_prefix = f"auto_screenshot_{timestamp}"
+                        await _capture_screenshot_internal(screenshot_prefix)
+
                     return result
                 finally:
                     # Restore panel control and disable beeper before disconnect
@@ -5407,39 +5465,15 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         Saves a PNG image of the current oscilloscope screen display to a temporary file,
         including waveforms, measurements, and all visible UI elements.
         """
-        # Set image format to PNG
-        scope._write_checked(":SAVE:IMAGe:FORMat PNG")
-
-        # Wait for operations to complete and on-screen messages to clear
-        scope._query_checked("*OPC?")
-        await asyncio.sleep(3.5)
-
-        # Query the image data
-        # Response format: TMC header + binary PNG data + terminator
-        png_data = cast(
-            bytes,
-            scope._query_binary_values_checked(
-                ":SAVE:IMAGe:DATA?",
-                datatype="B",  # Read as bytes
-                is_big_endian=False,
-                container=bytes,  # Return as bytes object
-            ),
-        )
-
-        # Save screenshot to temporary PNG file
+        # Use timestamp for user-initiated screenshots
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-        fd, file_path = tempfile.mkstemp(
-            suffix=".png",
-            prefix=f"screenshot_{timestamp}_",
-            dir=temp_dir,
-        )
-        try:
-            # Write PNG data to file
-            os.write(fd, png_data)
-        finally:
-            os.close(fd)
+        screenshot_prefix = f"screenshot_{timestamp}"
 
-        return ScreenshotResult(file_path=to_client_path(file_path) or file_path)
+        file_path = await _capture_screenshot_internal(screenshot_prefix)
+        if file_path is None:
+            raise Exception("Failed to capture screenshot")
+
+        return ScreenshotResult(file_path=file_path)
 
     # === DVM TOOLS ===
 
