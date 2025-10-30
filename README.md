@@ -296,3 +296,4 @@ python -m rigol_dho824_mcp.server --http --host 0.0.0.0 --port 3000
 python -m rigol_dho824_mcp.server --http --path /api/mcp
 ```
 
+<!-- mcp-name: io.github.aimoda/rigol-dho824-mcp -->
