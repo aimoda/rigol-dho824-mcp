@@ -1982,9 +1982,8 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
         Captures data in RAW mode with WORD format (16-bit) for maximum accuracy.
         Reads all available points from oscilloscope memory (up to 50M points depending on settings).
-        Uses chunked reading with progress reporting for large data transfers.
         Saves waveform data to temporary JSON files and returns file paths along with all parameters needed for voltage conversion.
-        Also attempts to capture WFM file (contains all channels) via FTP if network connection is available.
+        Also attempts to capture WFM file (contains all channels) from the device.
         The 'truncated' field indicates if any ADC values reached saturation (65535),
         which suggests the signal may be clipped and vertical scale adjustment may be needed.
 
