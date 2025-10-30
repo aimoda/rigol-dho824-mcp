@@ -65,7 +65,7 @@ jobs:
           # Compute extended version for Docker tags
           BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[^a-zA-Z0-9-]/-/g')
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          VERSION_FULL="$VERSION-$COMMIT_COUNT.$BRANCH_NAME.$SHORT_SHA"
+          VERSION_FULL="$VERSION-$BRANCH_NAME.$SHORT_SHA"
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "version_full=$VERSION_FULL" >> $GITHUB_OUTPUT
