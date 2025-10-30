@@ -1,0 +1,84 @@
+name: Publish Python 🐍 distribution 📦 to PyPI
+
+on:
+  push:
+    branches:
+      - main  # Publish to PyPI on every main branch push
+
+jobs:
+  build:
+    name: Build distribution 📦
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so git rev-list --count is accurate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Compute version from pyproject.toml and commit count
+        id: version
+        run: |
+          # Extract base version (X.Y.Z) from pyproject.toml
+          BASE_VERSION=$(grep -m 1 'version = ' pyproject.toml | cut -d'"' -f2)
+
+          # Extract major and minor version (X.Y)
+          MAJOR_MINOR=$(echo "$BASE_VERSION" | cut -d'.' -f1,2)
+
+          # Get commit count for patch version
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+
+          # Compute final version as X.Y.COMMIT_COUNT
+          VERSION="$MAJOR_MINOR.$COMMIT_COUNT"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Computed version: $VERSION"
+
+      - name: Update version in pyproject.toml
+        run: |
+          # Replace version in pyproject.toml with computed version
+          sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.version }}"/' pyproject.toml
+          echo "Updated pyproject.toml version to ${{ steps.version.outputs.version }}"
+          grep -m 1 'version = ' pyproject.toml
+
+      - name: Install build tool
+        run: python3 -m pip install build --user
+
+      - name: Build wheel and source tarball
+        run: python3 -m build
+
+      - name: Store distribution packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+  publish-to-pypi:
+    name: Publish Python 🐍 distribution 📦 to PyPI
+    needs:
+      - build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/rigol-dho824-mcp
+
+    permissions:
+      id-token: write  # MANDATORY for trusted publishing
+
+    steps:
+      - name: Download distribution packages
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
