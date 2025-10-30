@@ -248,6 +248,11 @@ Replace:
 
 **Note:** Unlike Claude Code, Codex requires explicit environment variables via `--env` flags (before the server name) as it runs MCP servers in a sanitized environment.
 
+### Development Scripts
+
+The `scripts/` directory contains utilities for development:
+- `convert_png_to_webp.sh` - Convert PNG frame sequences to animated WebP (e.g., `./scripts/convert_png_to_webp.sh "~/screenshots/*.png" output.webp`)
+
 ## Development Configuration
 
 The server can be configured using environment variables. Create a `.env` file from the example:
