@@ -577,41 +577,6 @@ BusNumberField = Annotated[int, Field(ge=1, le=4, description="Bus number (1-4)"
 # === TYPE DEFINITIONS FOR RESULTS ===
 
 
-# Identity results
-class ModelNumberResult(TypedDict):
-    """Result containing the oscilloscope model number."""
-
-    model: Annotated[
-        str,
-        Field(
-            description="The oscilloscope model number",
-            examples=["DHO824", "DHO804", "DHO914", "DHO924"],
-        ),
-    ]
-
-
-class SoftwareVersionResult(TypedDict):
-    """Result containing the oscilloscope software version."""
-
-    version: Annotated[
-        str,
-        Field(
-            description="The firmware/software version",
-            examples=["00.02.01.SP2", "00.01.05", "00.02.00.SP1"],
-        ),
-    ]
-
-
-class SerialNumberResult(TypedDict):
-    """Result containing the oscilloscope serial number."""
-
-    serial: Annotated[
-        str,
-        Field(
-            description="The unique serial number",
-            examples=["DHO8240000001", "DHO8040000123", "DHO9140000456"],
-        ),
-    ]
 
 
 # Channel results
@@ -1940,53 +1905,6 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             "CHAN4": 4,
         }
         return channel_map.get(scpi_source, 1)
-
-    # === IDENTITY TOOLS ===
-
-    @mcp.tool
-    @with_scope_connection
-    async def get_model_number() -> ModelNumberResult:
-        """
-        Get the model number of the connected Rigol oscilloscope.
-
-        Returns the model identifier (e.g., 'DHO824') from the oscilloscope's
-        identity string.
-        """
-        identity_parts = scope.parse_identity()
-        if not identity_parts:
-            raise Exception("Failed to parse oscilloscope identity")
-
-        return ModelNumberResult(model=identity_parts["model"])
-
-    @mcp.tool
-    @with_scope_connection
-    async def get_software_version() -> SoftwareVersionResult:
-        """
-        Get the software/firmware version of the connected Rigol oscilloscope.
-
-        Returns the software version string from the oscilloscope's
-        identity information.
-        """
-        identity_parts = scope.parse_identity()
-        if not identity_parts:
-            raise Exception("Failed to parse oscilloscope identity")
-
-        return SoftwareVersionResult(version=identity_parts["version"])
-
-    @mcp.tool
-    @with_scope_connection
-    async def get_serial_number() -> SerialNumberResult:
-        """
-        Get the serial number of the connected Rigol oscilloscope.
-
-        Returns the unique serial number identifier from the oscilloscope's
-        identity string.
-        """
-        identity_parts = scope.parse_identity()
-        if not identity_parts:
-            raise Exception("Failed to parse oscilloscope identity")
-
-        return SerialNumberResult(serial=identity_parts["serial"])
 
     # === WAVEFORM CAPTURE TOOLS ===
 
