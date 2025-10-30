@@ -1,11 +1,38 @@
 [project]
 name = "rigol-dho824-mcp"
 version = "0.1.0"
-description = "MCP server for Rigol DHO824 oscilloscope"
+description = "MCP server for controlling Rigol DHO824 oscilloscopes via AI assistants like Claude - capture waveforms, take screenshots, configure channels, modify triggers, read measurements, and query device state"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
+authors = [
+    {name = "ai.moda"}
+]
+keywords = [
+    "rigol",
+    "oscilloscope",
+    "dho824",
+    "dho804",
+    "mcp",
+    "mcp-server",
+    "scpi",
+    "test-equipment",
+    "measurement",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: System :: Hardware",
+]
 dependencies = [
     "fastmcp>=0.2.0",
     "pyvisa>=1.13.0",
@@ -14,6 +41,11 @@ dependencies = [
     "numpy>=1.24.0",
     "Pillow>=10.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/aimoda/rigol-dho824-mcp"
+Repository = "https://github.com/aimoda/rigol-dho824-mcp"
+Issues = "https://github.com/aimoda/rigol-dho824-mcp/issues"
 
 [project.scripts]
 rigol-dho824-mcp = "rigol_dho824_mcp.server:main"
