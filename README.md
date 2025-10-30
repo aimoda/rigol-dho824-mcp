@@ -2,6 +2,24 @@
 
 An MCP (Model Context Protocol) server for controlling and querying the Rigol DHO824 oscilloscope using PyVISA.
 
+## Hardware Requirements
+
+### Supported Models
+
+This project **only supports DHO804/DHO824** oscilloscopes (identical hardware). We recommend purchasing a **DHO804**.
+
+### Firmware Requirements
+
+**IMPORTANT:** The DHO804 must be flashed to DHO824 firmware before using this MCP server. Use the [rigol_vendor_bin](https://github.com/zelea2/rigol_vendor_bin) project to flash your oscilloscope.
+
+**Supported Firmware Version:** 00.01.04
+
+This is the only firmware version we test and support. Other firmware versions may work but are not guaranteed.
+
+### Compatibility Note
+
+Other Rigol oscilloscope models may work with this MCP server, but we have no way to test them or guarantee functionality. Use with other models at your own risk.
+
 ## Installation
 
 The recommended way to use this MCP server is via Docker, which eliminates dependency management and provides isolation.
