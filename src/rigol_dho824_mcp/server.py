@@ -1502,7 +1502,7 @@ class RigolDHO824:
         # Set timebase to MAIN (not ROLL or XY)
         self._write_checked(":TIMebase:MODE MAIN", raise_on_error=False)
 
-    def connect(self) -> bool:
+    async def connect(self) -> bool:
         """
         Connect to the oscilloscope.
 
@@ -1525,46 +1525,69 @@ class RigolDHO824:
                 self.disconnect()
 
         print("Opening up new connection")
-        try:
-            # Use provided resource string
+
+        # Retry connection up to 5 times with 1 second delay between attempts
+        for attempt in range(5):
             try:
-                self.instrument = cast(
-                    pyvisa.resources.MessageBasedResource,
-                    self.rm.open_resource(
-                        self.resource_string,
-                        access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
-                    ),
-                )
+                # Use provided resource string
+                try:
+                    self.instrument = cast(
+                        pyvisa.resources.MessageBasedResource,
+                        self.rm.open_resource(
+                            self.resource_string,
+                            access_mode=pyvisa.constants.AccessModes.exclusive_lock,  # type: ignore[reportAttributeAccessIssue]
+                        ),
+                    )
+                except Exception as e:
+                    if attempt < 4:  # Not the last attempt
+                        print(f"Connection attempt {attempt + 1} failed: {str(e)}. Retrying in 1 second...")
+                        await asyncio.sleep(1)
+                        continue
+                    else:  # Last attempt failed
+                        self.last_connection_error = f"Failed to open resource '{self.resource_string}' after 5 attempts: {str(e)}"
+                        return False
+
+                self._instr.timeout = self.timeout
+
+                # Set proper termination characters for SCPI communication
+                self._instr.read_termination = "\n"
+                self._instr.write_termination = "\n"
+
+                # Clear the instrument's input and output buffers
+                # self._instr.clear()
+
+                # Ensure synchronization - wait for all operations to complete
+                self._instr.write("*OPC")
+
+                # Test connection and cache identity
+                try:
+                    self._identity = self._instr.query("*IDN?").strip()
+                except Exception as e:
+                    if attempt < 4:  # Not the last attempt
+                        print(f"Identity query failed on attempt {attempt + 1}: {str(e)}. Retrying in 1 second...")
+                        self.disconnect()
+                        await asyncio.sleep(1)
+                        continue
+                    else:  # Last attempt failed
+                        self.last_connection_error = f"Connected to device but failed to query identity after 5 attempts: {str(e)}"
+                        self.disconnect()
+                        return False
+
+                # Connection successful
+                return True
+
             except Exception as e:
-                self.last_connection_error = f"Failed to open resource '{self.resource_string}': {str(e)}"
-                return False
+                # Catch-all for any unexpected errors
+                if attempt < 4:  # Not the last attempt
+                    print(f"Unexpected error on attempt {attempt + 1}: {str(e)}. Retrying in 1 second...")
+                    await asyncio.sleep(1)
+                    continue
+                else:  # Last attempt failed
+                    self.last_connection_error = f"Unexpected error during connection after 5 attempts: {str(e)}"
+                    return False
 
-            self._instr.timeout = self.timeout
-
-            # Set proper termination characters for SCPI communication
-            self._instr.read_termination = "\n"
-            self._instr.write_termination = "\n"
-
-            # Clear the instrument's input and output buffers
-            # self._instr.clear()
-
-            # Ensure synchronization - wait for all operations to complete
-            self._instr.write("*OPC")
-
-            # Test connection and cache identity
-            try:
-                self._identity = self._instr.query("*IDN?").strip()
-            except Exception as e:
-                self.last_connection_error = f"Connected to device but failed to query identity: {str(e)}"
-                self.disconnect()
-                return False
-
-            return True
-
-        except Exception as e:
-            # Catch-all for any unexpected errors
-            self.last_connection_error = f"Unexpected error during connection: {str(e)}"
-            return False
+        # This should never be reached, but for safety
+        return False
 
     def disconnect(self):
         """Disconnect from the oscilloscope."""
@@ -1828,7 +1851,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             async with scope.lock:
-                if not scope.connect():
+                if not await scope.connect():
                     error_detail = scope.last_connection_error or "Unknown error"
                     raise Exception(
                         f"Failed to connect to oscilloscope at '{scope.resource_string}'. "
