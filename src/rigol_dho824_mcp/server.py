@@ -1883,11 +1883,13 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                 exif[ExifTags.ImageDescription] = (
                     f"Auto-captured after {tool_metadata.get('tool_name', 'tool')} execution"
                 )
-                exif[ExifTags.UserComment] = f"MCP Server v{mcp_version}"
+                # UserComment requires 8-byte character code prefix (ASCII\0\0\0)
+                exif[ExifTags.UserComment] = b"ASCII\0\0\0" + f"MCP Server v{mcp_version}".encode('ascii')
             else:
                 # User screenshot: Generic description
                 exif[ExifTags.ImageDescription] = "Oscilloscope display screenshot"
-                exif[ExifTags.UserComment] = f"Rigol {model} MCP Server"
+                # UserComment requires 8-byte character code prefix (ASCII\0\0\0)
+                exif[ExifTags.UserComment] = b"ASCII\0\0\0" + f"Rigol {model} MCP Server".encode('ascii')
 
             # === TIER 2: PNG Text Chunks (ALWAYS EMBEDDED) ===
             pnginfo = PngInfo()
