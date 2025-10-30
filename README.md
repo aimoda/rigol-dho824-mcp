@@ -234,10 +234,19 @@ claude mcp add --scope local rigol-dho824 -- <path-to-this-repo>/venv/bin/rigol-
 
 **Codex CLI:**
 ```bash
-codex mcp add rigol-dho824 -- <path-to-this-repo>/venv/bin/rigol-dho824-mcp
+codex mcp add \
+  --env RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR" \
+  --env VISA_TIMEOUT="30000" \
+  --env RIGOL_BEEPER_ENABLED="false" \
+  --env RIGOL_AUTO_SCREENSHOT="false" \
+  rigol-dho824 -- <path-to-this-repo>/venv/bin/rigol-dho824-mcp
 ```
 
-Replace `<path-to-this-repo>` with the actual path to this repository.
+Replace:
+- `<path-to-this-repo>` with the actual path to this repository
+- `192.168.1.100` with your oscilloscope's IP address
+
+**Note:** Unlike Claude Code, Codex requires explicit environment variables via `--env` flags (before the server name) as it runs MCP servers in a sanitized environment.
 
 ## Development Configuration
 
