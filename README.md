@@ -2,6 +2,8 @@
 
 An MCP (Model Context Protocol) server for controlling and querying the Rigol DHO824 oscilloscope using PyVISA.
 
+![Demo of oscilloscope in action](demo.webp)
+
 ## Hardware Requirements
 
 ### Supported Models
