@@ -24,7 +24,7 @@ Other Rigol oscilloscope models may work with this MCP server, but we have no wa
 
 The recommended way to use this MCP server is via Docker, which eliminates dependency management and provides isolation.
 
-### Quick Start with Claude Code
+### Quick Start
 
 Pull the pre-built image from GitHub Container Registry:
 
@@ -32,11 +32,9 @@ Pull the pre-built image from GitHub Container Registry:
 docker pull ghcr.io/aimoda/rigol-dho824-mcp:latest
 ```
 
-### Configuration
+### Using Environment Variables with Docker
 
 **IMPORTANT:** You must provide the `RIGOL_RESOURCE` environment variable with your oscilloscope's IP address (e.g., `TCPIP0::192.168.1.100::inst0::INSTR`).
-
-#### Using Environment Variables with Docker
 
 You can configure the Docker container with environment variables in two ways:
 
@@ -45,25 +43,20 @@ You can configure the Docker container with environment variables in two ways:
 
 When you use `-e VARIABLE_NAME` without a value, Docker automatically passes through the variable from your host environment. This is useful if you have environment variables already set in your shell (e.g., in `~/.bashrc` or `~/.zshrc`).
 
-Add the Docker-based MCP server to Claude Code using either method:
+### Environment Variables
 
-#### Option 1: Using `claude mcp add` command
+- `RIGOL_RESOURCE`: **Required** - VISA resource string for connecting to the oscilloscope (e.g., `TCPIP0::192.168.1.100::inst0::INSTR`)
+- `RIGOL_TEMP_DIR`: **Required for Docker** - Host-side path for returned file paths. The container always writes to `/tmp/rigol` internally and translates paths to this value in responses. Must match the host path in your `-v` mount. Outside Docker, this sets the directory for temporary files (waveforms, screenshots); if not set, uses system default temp directory.
+- `VISA_TIMEOUT`: Communication timeout in milliseconds (default: 30000)
+- `RIGOL_BEEPER_ENABLED`: Enable/disable oscilloscope beeper sounds (default: false)
+- `RIGOL_AUTO_SCREENSHOT`: Automatically capture screenshot after each MCP tool execution for visualization/debugging (default: false). Screenshots are saved with human-readable timestamp format (e.g., `auto_screenshot_20251030_143045_123.png`) for chronological sorting.
 
-```bash
-claude mcp add --scope local rigol-dho824 -- \
-  docker run -i --rm \
-  -v /tmp/rigol-data:/tmp/rigol \
-  -e RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR" \
-  -e VISA_TIMEOUT=30000 \
-  -e RIGOL_BEEPER_ENABLED=false \
-  -e RIGOL_AUTO_SCREENSHOT=false \
-  -e RIGOL_TEMP_DIR=/tmp/rigol-data \
-  ghcr.io/aimoda/rigol-dho824-mcp:latest
-```
+## MCP Client Configuration
 
-Replace `192.168.1.100` with your oscilloscope's IP address. The `-v /tmp/rigol-data:/tmp/rigol` mounts the host directory, and `-e RIGOL_TEMP_DIR=/tmp/rigol-data` tells the server to return paths using the host prefix. After adding, restart Claude Code to load the MCP server.
+<details>
+  <summary>Claude Code</summary>
 
-#### Option 2: Using `.mcp.json` file
+**Option 1: Using `.mcp.json` file**
 
 Create a `.mcp.json` file in your project directory (or copy from `.mcp.json.example`):
 
@@ -103,17 +96,54 @@ Create a `.mcp.json` file in your project directory (or copy from `.mcp.json.exa
 }
 ```
 
-Replace `192.168.1.100` with your oscilloscope's IP address. The server will translate container paths (`/tmp/rigol/*`) to host paths (`/tmp/rigol-data/*`) in all returned file paths.
+**Option 2: Using CLI**
 
-After configuring, restart Claude Code to load the MCP server.
+```bash
+claude mcp add --scope local rigol-dho824 -- \
+  docker run -i --rm \
+  -v /tmp/rigol-data:/tmp/rigol \
+  -e RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR" \
+  -e VISA_TIMEOUT=30000 \
+  -e RIGOL_BEEPER_ENABLED=false \
+  -e RIGOL_AUTO_SCREENSHOT=false \
+  -e RIGOL_TEMP_DIR=/tmp/rigol-data \
+  ghcr.io/aimoda/rigol-dho824-mcp:latest
+```
 
-### Environment Variables
+Replace `192.168.1.100` with your oscilloscope's IP address.
 
-- `RIGOL_RESOURCE`: **Required** - VISA resource string for connecting to the oscilloscope (e.g., `TCPIP0::192.168.1.100::inst0::INSTR`)
-- `RIGOL_TEMP_DIR`: **Required for Docker** - Host-side path for returned file paths. The container always writes to `/tmp/rigol` internally and translates paths to this value in responses. Must match the host path in your `-v` mount. Outside Docker, this sets the directory for temporary files (waveforms, screenshots); if not set, uses system default temp directory.
-- `VISA_TIMEOUT`: Communication timeout in milliseconds (default: 30000)
-- `RIGOL_BEEPER_ENABLED`: Enable/disable oscilloscope beeper sounds (default: false)
-- `RIGOL_AUTO_SCREENSHOT`: Automatically capture screenshot after each MCP tool execution for visualization/debugging (default: false). Screenshots are saved with human-readable timestamp format (e.g., `auto_screenshot_20251030_143045_123.png`) for chronological sorting.
+</details>
+
+<details>
+  <summary>Codex</summary>
+
+```bash
+codex mcp add rigol-dho824 -- \
+  docker run -i --rm \
+  -v /tmp/rigol-data:/tmp/rigol \
+  -e RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR" \
+  -e VISA_TIMEOUT=30000 \
+  -e RIGOL_BEEPER_ENABLED=false \
+  -e RIGOL_AUTO_SCREENSHOT=false \
+  -e RIGOL_TEMP_DIR=/tmp/rigol-data \
+  ghcr.io/aimoda/rigol-dho824-mcp:latest
+```
+
+Replace `192.168.1.100` with your oscilloscope's IP address.
+
+</details>
+
+**Note:** After adding the server to your MCP client, restart the client to load the MCP server. The server will translate container paths (`/tmp/rigol/*`) to host paths (`/tmp/rigol-data/*`) in all returned file paths.
+
+### Your first prompt
+
+Enter the following prompt in your MCP Client to verify your setup:
+
+```
+Capture a waveform from channel 1 of my oscilloscope
+```
+
+Your MCP client should connect to the oscilloscope and capture the waveform data.
 
 ### Accessing Temp Files in Docker
 
@@ -193,12 +223,18 @@ pip install -e .
 pip install -r requirements.txt
 ```
 
-### Add to Claude Code
+### Add to MCP Client
 
-After completing the setup steps above, add the local development MCP server to Claude Code:
+After completing the setup steps above, add the local development MCP server to your MCP client:
 
+**Claude Code:**
 ```bash
 claude mcp add --scope local rigol-dho824 -- <path-to-this-repo>/venv/bin/rigol-dho824-mcp
+```
+
+**Codex CLI:**
+```bash
+codex mcp add rigol-dho824 -- <path-to-this-repo>/venv/bin/rigol-dho824-mcp
 ```
 
 Replace `<path-to-this-repo>` with the actual path to this repository.
