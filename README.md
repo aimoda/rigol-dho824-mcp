@@ -265,9 +265,8 @@ cp .env.example .env
 
 Then edit `.env` to set your configuration:
 
-- `RIGOL_RESOURCE`: VISA resource string for the oscilloscope
+- `RIGOL_RESOURCE`: VISA resource string for the oscilloscope (required)
   - Example: `TCPIP0::192.168.1.100::inst0::INSTR`
-  - Leave empty for auto-discovery
 - `VISA_TIMEOUT`: Communication timeout in milliseconds (default: 5000)
 
 ## Running the Server (Development)
@@ -276,10 +275,7 @@ For local development and testing, you can run the server directly with Python:
 
 ### STDIO Transport
 ```bash
-# Auto-discover oscilloscope
-python -m rigol_dho824_mcp.server
-
-# Or set resource string via environment variable
+# Set resource string via environment variable
 export RIGOL_RESOURCE="TCPIP0::192.168.1.100::inst0::INSTR"
 python -m rigol_dho824_mcp.server
 ```

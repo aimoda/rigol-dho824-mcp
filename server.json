@@ -100,9 +100,9 @@
       "environmentVariables": [
         {
           "name": "RIGOL_RESOURCE",
-          "description": "VISA resource string for connecting to the oscilloscope (e.g., 'TCPIP0::192.168.1.100::inst0::INSTR'). Leave empty for auto-discovery.",
+          "description": "VISA resource string for connecting to the oscilloscope (e.g., 'TCPIP0::192.168.1.100::inst0::INSTR').",
           "placeholder": "TCPIP0::192.168.1.100::inst0::INSTR",
-          "isRequired": false
+          "isRequired": true
         },
         {
           "name": "VISA_TIMEOUT",
@@ -139,9 +139,9 @@
       "environmentVariables": [
         {
           "name": "RIGOL_RESOURCE",
-          "description": "VISA resource string for connecting to the oscilloscope (e.g., 'TCPIP0::192.168.1.100::inst0::INSTR'). Leave empty for auto-discovery.",
+          "description": "VISA resource string for connecting to the oscilloscope (e.g., 'TCPIP0::192.168.1.100::inst0::INSTR').",
           "placeholder": "TCPIP0::192.168.1.100::inst0::INSTR",
-          "isRequired": false
+          "isRequired": true
         },
         {
           "name": "VISA_TIMEOUT",
