@@ -1996,6 +1996,8 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
         Voltage conversion formula: voltage = (raw_value - y_origin - y_reference) * y_increment
         Time calculation formula: time = sample_index * x_increment + x_origin
+
+        Note: After changing scales, trigger once to refresh data before capturing.
         """
         # Generate unique capture ID based on timestamp
         capture_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
@@ -5465,6 +5467,8 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
         Saves a PNG image of the current oscilloscope screen display to a temporary file,
         including waveforms, measurements, and all visible UI elements.
+
+        Note: After changing scales, trigger once to refresh the display before capturing.
         """
         # Use timestamp for user-initiated screenshots
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
