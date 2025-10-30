@@ -5387,13 +5387,13 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         """
         Reset the oscilloscope to factory default settings.
 
-        Restores all settings to their factory defaults, including
-        channel configurations, timebase, trigger settings, and
-        display options.
+        This is a SAFE operation that resets the instrument's UI state,
+        clearing captured waveforms, display settings, channel configurations,
+        timebase, and trigger settings. The reset command completes instantly.
         """
         scope._write_checked("*RST")
 
-        # Reset takes a moment to complete
+        # Brief delay for instrument stability
         await asyncio.sleep(2)
 
         return ActionResult(action=SystemAction.RESET)
