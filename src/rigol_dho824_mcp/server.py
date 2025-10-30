@@ -5,6 +5,8 @@ import functools
 import hashlib
 import io
 import os
+import random
+import string
 import tempfile
 import json
 from datetime import datetime
@@ -2164,8 +2166,8 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         # WFM contains all enabled channels in a single file
         wfm_saved_path: Optional[str] = None
 
-        # Generate random 8-char lowercase hex filename to avoid overwriting
-        wfm_filename = f"{os.urandom(4).hex()}.wfm"
+        # Generate random 10-char string to avoid overwriting
+        wfm_filename = f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=10))}.wfm"
         wfm_scope_path = f"C:/{wfm_filename}"
         wfm_local_path = os.path.join(capture_dir, "data.wfm")
 
@@ -5231,8 +5233,8 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         Note:
         - CSV contains timestamp, decoded values, and protocol-specific fields
         """
-        # Generate random 8-char lowercase hex filename to avoid overwriting
-        csv_filename = f"{os.urandom(4).hex()}.csv"
+        # Generate random 10-char string filename to avoid overwriting
+        csv_filename = f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=10))}.csv"
         csv_scope_path = f"C:/{csv_filename}"
 
         await ctx.report_progress(
