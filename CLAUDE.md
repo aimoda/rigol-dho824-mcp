@@ -109,6 +109,40 @@ SCPI references are **acceptable** in:
 - Keep docstrings concise and user-focused
 - **Do NOT include `Args:` or `Returns:` sections** - the MCP framework auto-generates parameter and return documentation from Pydantic `Field()` annotations, making manual documentation redundant
 
+## SCPI I/O Safety: Always Use Checked Helpers
+
+**IMPORTANT**: Never call `write`, `query`, or `query_binary_values` on the VISA resource directly. Always use the checked helper methods provided by `RigolDHO824`:
+
+- `_write_checked(command: str, raise_on_error: bool = True)`
+- `_query_checked(command: str) -> str`
+- `_query_binary_values_checked(command: str, **kwargs)`
+
+These helpers immediately query `:SYSTem:ERRor?` after every operation and raise (or optionally return) any error, ensuring consistent error handling and preventing stale errors from lingering in the queue.
+
+### Good vs Bad
+
+```python
+# GOOD
+self._write_checked(":RUN")
+idn = self._query_checked("*IDN?").strip()
+data = self._query_binary_values_checked(":WAV:DATA?", datatype="H", is_big_endian=False)
+
+# If in a best-effort cleanup path:
+self._write_checked(":SYSTem:LOCKed OFF", raise_on_error=False)
+```
+
+```python
+# BAD — do not use direct VISA calls
+self._instr.write(":RUN")
+self._instr.query("*IDN?")
+self._instr.query_binary_values(":WAV:DATA?", datatype="H")
+```
+
+### Notes
+- Property assignments like `self._instr.timeout = ...` are not SCPI commands and are OK.
+- In cleanup/finally blocks, prefer `_write_checked(..., raise_on_error=False)` wrapped in `try/except`.
+- New tools and helpers must follow this pattern for all SCPI I/O.
+
 ## Type Checking
 
 **IMPORTANT**: After writing or modifying Python code, always run `pyright` to check for type errors and fix any issues found.

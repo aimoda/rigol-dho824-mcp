@@ -1483,7 +1483,7 @@ class RigolDHO824:
         if self.instrument is not None:
             try:
                 # Test if connection is still alive with a simple query
-                self._instr.query("*OPC?")
+                self._query_checked("*OPC?")
                 # self._instr.write('*OPC')
                 return True
             except Exception as e:
@@ -1524,11 +1524,11 @@ class RigolDHO824:
                 # self._instr.clear()
 
                 # Ensure synchronization - wait for all operations to complete
-                self._instr.write("*OPC")
+                self._write_checked("*OPC")
 
                 # Test connection and cache identity
                 try:
-                    self._identity = self._instr.query("*IDN?").strip()
+                    self._identity = self._query_checked("*IDN?").strip()
                 except Exception as e:
                     if attempt < 4:  # Not the last attempt
                         print(f"Identity query failed on attempt {attempt + 1}: {str(e)}. Retrying in 1 second...")
@@ -1577,7 +1577,7 @@ class RigolDHO824:
 
         if self._identity is None:
             try:
-                self._identity = self._instr.query("*IDN?").strip()
+                self._identity = self._query_checked("*IDN?").strip()
             except:
                 return None
 
@@ -1689,11 +1689,11 @@ class RigolDHO824:
     def dvm_enable(self, enabled: bool) -> None:
         """Enable or disable the Digital Voltmeter."""
         cmd = f":DVM:ENABle {'ON' if enabled else 'OFF'}"
-        self._instr.write(cmd)
+        self._write_checked(cmd)
 
     def dvm_is_enabled(self) -> bool:
         """Query if DVM is enabled."""
-        response = self._instr.query(":DVM:ENABle?")
+        response = self._query_checked(":DVM:ENABle?")
         return response.strip() == "1"
 
     def dvm_set_source(self, channel: int) -> None:
@@ -1701,7 +1701,7 @@ class RigolDHO824:
         if channel not in [1, 2, 3, 4]:
             raise ValueError(f"Channel must be 1-4, got {channel}")
         cmd = f":DVM:SOURce CHANnel{channel}"
-        self._instr.write(cmd)
+        self._write_checked(cmd)
 
     def dvm_get_source(self) -> str:
         """Query DVM source channel.
@@ -1709,17 +1709,17 @@ class RigolDHO824:
         Returns:
             SCPI channel name (e.g., 'CHAN1', 'CHAN2')
         """
-        response = self._instr.query(":DVM:SOURce?")
+        response = self._query_checked(":DVM:SOURce?")
         return response.strip()
 
     def dvm_set_mode(self, mode: DVMMode) -> None:
         """Set DVM measurement mode."""
         cmd = f":DVM:MODE {mode.value}"
-        self._instr.write(cmd)
+        self._write_checked(cmd)
 
     def dvm_get_mode(self) -> DVMMode:
         """Query DVM measurement mode."""
-        response = self._instr.query(":DVM:MODE?")
+        response = self._query_checked(":DVM:MODE?")
         mode_str = response.strip()
         return DVMMode(mode_str)
 
@@ -1729,7 +1729,7 @@ class RigolDHO824:
         Returns:
             Voltage reading in volts
         """
-        response = self._instr.query(":DVM:CURRent?")
+        response = self._query_checked(":DVM:CURRent?")
         return float(response.strip())
 
 
@@ -1895,14 +1895,14 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                     return result
                 finally:
                     # Restore panel control and disable beeper before disconnect
-                    # Use _instr directly to avoid masking errors from the main function
+                    # Use checked helpers with raise_on_error=False to avoid masking errors from the main function
                     if beeper_enabled:
                         try:
-                            scope._instr.write(":SYSTem:BEEPer OFF")
+                            scope._write_checked(":SYSTem:BEEPer OFF", raise_on_error=False)
                         except Exception:
                             pass  # Best effort cleanup
                     try:
-                        scope._instr.write(":SYSTem:LOCKed OFF")
+                        scope._write_checked(":SYSTem:LOCKed OFF", raise_on_error=False)
                     except Exception:
                         pass  # Best effort cleanup
                     scope.disconnect()
