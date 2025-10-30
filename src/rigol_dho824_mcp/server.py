@@ -3,6 +3,7 @@
 import asyncio
 import functools
 import hashlib
+import inspect
 import io
 import os
 import random
@@ -10,6 +11,7 @@ import string
 import tempfile
 import json
 from datetime import datetime
+from email.utils import formatdate
 from enum import Enum
 from ftplib import FTP
 from typing import Optional, TypedDict, Annotated, List, Literal, cast, Union, Sequence
@@ -18,6 +20,9 @@ import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP, Context
 from dotenv import load_dotenv
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
+from PIL.ExifTags import Base as ExifTags
 import pyvisa
 import pyvisa.resources
 
@@ -1803,12 +1808,16 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
     # === INTERNAL HELPER FUNCTIONS ===
 
-    async def _capture_screenshot_internal(filename_prefix: str) -> Optional[str]:
+    async def _capture_screenshot_internal(
+        filename_prefix: str, tool_metadata: Optional[dict] = None
+    ) -> Optional[str]:
         """
-        Internal helper to capture a screenshot with a custom filename prefix.
+        Internal helper to capture a screenshot with metadata embedding.
 
         Args:
             filename_prefix: Prefix for the screenshot filename (without extension)
+            tool_metadata: Optional dictionary containing tool call metadata to embed in Tier 3.
+                          If None, only Tier 1 (EXIF) and Tier 2 (PNG text) are embedded.
 
         Returns:
             File path of saved screenshot (client-translated if applicable), or None if capture failed
@@ -1833,15 +1842,90 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                 ),
             )
 
-            # Save screenshot to temporary PNG file
+            # Create temporary file
             fd, file_path = tempfile.mkstemp(
                 suffix=".png",
                 prefix=f"{filename_prefix}_",
                 dir=temp_dir,
             )
+
+            # Load PNG from in-memory bytes and add metadata
+            img = Image.open(io.BytesIO(png_data))
+
+            # Get oscilloscope identity from scope.parse_identity()
+            identity = scope.parse_identity() or {}
+            model = identity.get("model", "Unknown")
+            firmware = identity.get("version", "Unknown")
+            serial = identity.get("serial", "Unknown")
+
+            # MCP version (from pyproject.toml)
+            mcp_version = "0.1.0"
+
+            # Prepare timestamps
+            now = datetime.now()
+            exif_datetime = now.strftime("%Y:%m:%d %H:%M:%S")
+            rfc1123_datetime = formatdate(now.timestamp(), localtime=True)
+            iso_datetime = now.isoformat()
+
+            # === TIER 1: Standard EXIF Tags (ALWAYS EMBEDDED) ===
+            exif = Image.Exif()
+            exif[ExifTags.Make] = "Rigol Technologies"
+            exif[ExifTags.Model] = model
+            exif[ExifTags.Software] = firmware
+            exif[ExifTags.HostComputer] = f"Rigol {model} Oscilloscope"
+            exif[ExifTags.BodySerialNumber] = serial
+            exif[ExifTags.DateTime] = exif_datetime
+            exif[ExifTags.DateTimeOriginal] = exif_datetime
+
+            # Context-specific EXIF fields
+            if tool_metadata:
+                # Auto-screenshot: Include tool context
+                exif[ExifTags.ImageDescription] = (
+                    f"Auto-captured after {tool_metadata.get('tool_name', 'tool')} execution"
+                )
+                exif[ExifTags.UserComment] = f"MCP Server v{mcp_version}"
+            else:
+                # User screenshot: Generic description
+                exif[ExifTags.ImageDescription] = "Oscilloscope display screenshot"
+                exif[ExifTags.UserComment] = f"Rigol {model} MCP Server"
+
+            # === TIER 2: PNG Text Chunks (ALWAYS EMBEDDED) ===
+            pnginfo = PngInfo()
+            pnginfo.add_text("Software", f"Rigol {model} MCP Server v{mcp_version}")
+            pnginfo.add_text("Creation Time", rfc1123_datetime)
+            pnginfo.add_text("Source", f"Rigol {model} Oscilloscope (Serial: {serial})")
+
+            # Context-specific description
+            if tool_metadata:
+                pnginfo.add_text(
+                    "Description",
+                    f"Oscilloscope screenshot captured after {tool_metadata.get('tool_name', 'tool')}",
+                )
+            else:
+                pnginfo.add_text("Description", "Oscilloscope display screenshot")
+
+            # === TIER 3: Custom MCP Metadata (ONLY FOR AUTO-SCREENSHOTS) ===
+            if tool_metadata:
+                # Add ISO timestamp to metadata
+                tool_metadata_with_time = {
+                    **tool_metadata,
+                    "timestamp": iso_datetime,
+                    "mcp_version": mcp_version,
+                }
+                pnginfo.add_itxt(
+                    "MCP:Tool",
+                    json.dumps(tool_metadata_with_time, indent=2, default=str),
+                    zip=True,  # Compress for efficiency
+                )
+
+            # Save to BytesIO buffer with metadata
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG", exif=exif, pnginfo=pnginfo)
+            png_to_write = buffer.getvalue()
+
+            # Write to file descriptor
             try:
-                # Write PNG data to file
-                os.write(fd, png_data)
+                os.write(fd, png_to_write)
             finally:
                 os.close(fd)
 
@@ -1882,6 +1966,13 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                 if beeper_enabled:
                     scope._write_checked(":SYSTem:BEEPer ON")
 
+                # Capture tool metadata for auto-screenshot embedding
+                tool_name = func.__name__
+                sig = inspect.signature(func)
+                bound_args = sig.bind(*args, **kwargs)
+                bound_args.apply_defaults()
+                tool_args = dict(bound_args.arguments)
+
                 try:
                     result = await func(*args, **kwargs)
 
@@ -1890,7 +1981,15 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                         # Use same timestamp format as get_screenshot for consistency
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                         screenshot_prefix = f"auto_screenshot_{timestamp}"
-                        await _capture_screenshot_internal(screenshot_prefix)
+
+                        # Build metadata payload with tool call information
+                        metadata = {
+                            "tool_name": tool_name,
+                            "arguments": tool_args,
+                            "returns": result,
+                        }
+
+                        await _capture_screenshot_internal(screenshot_prefix, metadata)
 
                     return result
                 finally:
