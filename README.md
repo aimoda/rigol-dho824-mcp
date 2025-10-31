@@ -4,6 +4,8 @@ An MCP (Model Context Protocol) server for controlling and querying the Rigol DH
 
 ![Demo of oscilloscope in action](https://raw.githubusercontent.com/aimoda/rigol-dho824-mcp/main/demo.webp)
 
+Built by [ai.moda](https://www.ai.moda/en/?utm_campaign=rigol-dho824-mcp).
+
 ## Hardware Requirements
 
 ### Supported Models
