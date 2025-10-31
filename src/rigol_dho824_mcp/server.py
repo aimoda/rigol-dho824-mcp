@@ -5610,23 +5610,88 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
     @mcp.tool
     @with_scope_connection
-    async def auto_setup() -> AutoSetupResult:
+    async def auto_setup(
+        channels: Annotated[
+            Optional[Sequence[ChannelNumber]],
+            Field(
+                description="If not specified, all channels are tested and configured automatically.",
+                min_length=1,
+                max_length=4,
+            ),
+        ] = None
+    ) -> AutoSetupResult:
         """
         Perform automatic setup of the oscilloscope.
 
         Automatically configures vertical scale, horizontal scale, and trigger
-        settings for optimal display of the input signal. Returns the updated
-        channel configurations after auto setup completes.
+        settings for optimal display of input signals.
         """
-        scope._write_checked(":AUT")
+        # Normalize channels parameter (deduplicate while preserving order)
+        normalized_channels: Optional[List[int]] = None
+        if channels is not None:
+            seen = set()
+            normalized_channels = []
+            for ch in channels:
+                if ch not in seen:
+                    normalized_channels.append(ch)
+                    seen.add(ch)
 
-        # Auto setup takes a moment
-        await asyncio.sleep(2)
+        # Save original :AUToset:OPENch setting
+        prev_opench = bool(int(scope._query_checked(":AUToset:OPENch?")))
 
-        # Collect updated channel configurations
-        channels = [_query_channel_status(ch) for ch in range(1, 5)]
+        # Save original channel display states for all channels
+        original_states = {
+            ch: bool(int(scope._query_checked(f":CHAN{ch}:DISP?")))
+            for ch in range(1, 5)
+        }
 
-        return AutoSetupResult(action=SystemAction.AUTO_SETUP, channels=channels)
+        try:
+            # Configure channel display states if specific channels requested
+            if normalized_channels is not None:
+                # Enable requested channels
+                for ch in normalized_channels:
+                    if not original_states[ch]:
+                        scope._write_checked(f":CHAN{ch}:DISP ON")
+
+                # Temporarily disable non-requested channels
+                for ch in range(1, 5):
+                    if ch not in normalized_channels and original_states[ch]:
+                        scope._write_checked(f":CHAN{ch}:DISP OFF")
+
+                # Set :AUToset:OPENch ON to test only enabled channels
+                scope._write_checked(":AUToset:OPENch ON")
+            else:
+                # Set :AUToset:OPENch OFF to test all channels in sequence
+                scope._write_checked(":AUToset:OPENch OFF")
+
+            # Execute autoset
+            scope._write_checked(":AUT")
+
+            # Auto setup takes a moment
+            await asyncio.sleep(2)
+
+            # Collect updated channel configurations for all channels
+            channel_statuses = [_query_channel_status(ch) for ch in range(1, 5)]
+
+            return AutoSetupResult(action=SystemAction.AUTO_SETUP, channels=channel_statuses)
+
+        finally:
+            # Restore original :AUToset:OPENch setting
+            try:
+                opench_value = "ON" if prev_opench else "OFF"
+                scope._write_checked(f":AUToset:OPENch {opench_value}", raise_on_error=False)
+            except Exception:
+                pass  # Best-effort cleanup
+
+            # Restore original display states for non-targeted channels
+            if normalized_channels is not None:
+                for ch in range(1, 5):
+                    if ch not in normalized_channels:
+                        try:
+                            state = "ON" if original_states[ch] else "OFF"
+                            scope._write_checked(f":CHAN{ch}:DISP {state}", raise_on_error=False)
+                        except Exception:
+                            pass  # Best-effort cleanup
 
     @mcp.tool
     @with_scope_connection
