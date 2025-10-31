@@ -950,8 +950,19 @@ class WaveformChannelData(TypedDict):
     points: Annotated[int, Field(description="Number of data points")]
 
 
+class WaveformChannelError(TypedDict):
+    """Error information for a single requested channel capture."""
+
+    channel: ChannelNumber
+    error: Annotated[str, Field(description="Error message for this channel")]
+
+
 class WaveformCaptureResult(TypedDict):
     """Result for waveform capture operations including channel data and optional WFM file.
+
+    Each requested channel returns either a successful data object or an error object with an
+    explanatory message. Disabled channels are included as error entries. The channels array
+    preserves request order.
 
     The WFM file is provided for archival purposes and scientific validation. Use the channel
     JSON files for analysis as they contain parsed data with conversion parameters. The WFM
@@ -959,7 +970,8 @@ class WaveformCaptureResult(TypedDict):
     """
 
     channels: Annotated[
-        List[WaveformChannelData], Field(description="List of captured channel data")
+        List[Union[WaveformChannelData, WaveformChannelError]],
+        Field(description="Per‑channel results (data or error) in request order"),
     ]
     wfm_file_path: Annotated[
         Optional[str],
@@ -2098,6 +2110,9 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         The 'truncated' field indicates if any ADC values reached saturation (65535),
         which suggests the signal may be clipped and vertical scale adjustment may be needed.
 
+        Each requested channel returns either a successful data object or an error object with an
+        explanatory message. Disabled channels are included as error entries instead of being omitted.
+
         The WFM file is captured for long-term archival and serves as immutable ground truth
         for scientific reproducibility. Use the channel JSON files for analysis and processing,
         as they include parsed data and conversion parameters. Preserve the WFM file for future
@@ -2130,6 +2145,10 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                     progress=(channel_idx + 1) / len(channels),
                     message=f"Channel {channel} is disabled, skipping",
                 )
+                results.append({
+                    "channel": channel,
+                    "error": "Channel is disabled",
+                })
                 continue
 
             try:
@@ -2271,6 +2290,10 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                     progress=(channel_idx + 1) / len(channels),
                     message=f"Channel {channel}: Error - {str(e)}",
                 )
+                results.append({
+                    "channel": channel,
+                    "error": str(e),
+                })
                 continue
 
         # Capture WFM file for future-proofing and scientific accuracy
