@@ -885,6 +885,14 @@ class ActionResult(TypedDict):
     action: Annotated[SystemAction, Field(description="Action performed")]
 
 
+class AutoSetupResult(ActionResult):
+    """Result for auto setup operation with channel configurations."""
+
+    channels: Annotated[
+        List[ChannelStatusResult], Field(description="Channel configurations after auto setup")
+    ]
+
+
 class WaveformRecordingResult(TypedDict):
     """Result for waveform recording operations."""
 
@@ -2417,11 +2425,12 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
         return ChannelBandwidthResult(channel=channel, bandwidth_limit=result_bw)
 
-    @mcp.tool
-    @with_scope_connection
-    async def get_channel_status(channel: ChannelNumber) -> ChannelStatusResult:
+    def _query_channel_status(channel: int) -> ChannelStatusResult:
         """
-        Get comprehensive channel status and settings.
+        Query comprehensive channel status from oscilloscope.
+
+        Internal helper for getting channel configuration. Used by get_channel_status
+        tool and auto_setup to avoid duplicating SCPI queries.
         """
         # Query all channel settings
         enabled = bool(int(scope._query_checked(f":CHAN{channel}:DISP?")))
@@ -2447,6 +2456,14 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             invert=invert,
             units=units,
         )
+
+    @mcp.tool
+    @with_scope_connection
+    async def get_channel_status(channel: ChannelNumber) -> ChannelStatusResult:
+        """
+        Get comprehensive channel status and settings.
+        """
+        return _query_channel_status(channel)
 
     # === PRIORITY 1: CHANNEL SETTINGS ===
 
@@ -5519,19 +5536,23 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
     @mcp.tool
     @with_scope_connection
-    async def auto_setup() -> ActionResult:
+    async def auto_setup() -> AutoSetupResult:
         """
         Perform automatic setup of the oscilloscope.
 
         Automatically configures vertical scale, horizontal scale, and trigger
-        settings for optimal display of the input signal.
+        settings for optimal display of the input signal. Returns the updated
+        channel configurations after auto setup completes.
         """
         scope._write_checked(":AUT")
 
         # Auto setup takes a moment
         await asyncio.sleep(2)
 
-        return ActionResult(action=SystemAction.AUTO_SETUP)
+        # Collect updated channel configurations
+        channels = [_query_channel_status(ch) for ch in range(1, 5)]
+
+        return AutoSetupResult(action=SystemAction.AUTO_SETUP, channels=channels)
 
     @mcp.tool
     @with_scope_connection
