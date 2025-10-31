@@ -1764,6 +1764,29 @@ class RigolDHO824:
         response = self._query_checked(":DVM:CURRent?")
         return float(response.strip())
 
+    async def _wait_for_save_completion(
+        self, timeout: float = 600.0, poll_interval: float = 1.0
+    ) -> None:
+        """
+        Poll :SAVE:STATus? until file save operation completes.
+
+        Args:
+            timeout: Maximum time to wait in seconds (default: 600s / 10 minutes)
+            poll_interval: Time between status polls in seconds (default: 1.0s)
+
+        Raises:
+            TimeoutError: If save doesn't complete within timeout period
+        """
+        elapsed = 0.0
+        while elapsed < timeout:
+            status = self._query_checked(":SAVE:STATus?").strip()
+            if status == "1":
+                return  # Save completed
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        raise TimeoutError(f"File save did not complete within {timeout} seconds")
+
 
 def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastMCP:
     """Create the FastMCP server with oscilloscope tools.
@@ -2365,12 +2388,9 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             # Enable file overwriting
             scope._write_checked(":SAVE:OVER ON")
 
-            # Save memory waveform to scope
+            # Save memory waveform to scope and wait for completion
             scope._write_checked(f":SAVE:MEMory:WAVeform {wfm_scope_path}")
-            await asyncio.sleep(5)  # Wait for save to complete
-
-            # Check save status
-            scope._query_checked(":SAVE:STATus?")
+            await scope._wait_for_save_completion(timeout=600.0)
 
             # Try to download via FTP
             ip_address = scope.extract_ip_from_resource()
@@ -5435,11 +5455,9 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             progress=0.3, message=f"Exporting bus {bus_number} data on scope..."
         )
 
-        # Export bus data to CSV on scope
+        # Export bus data to CSV on scope and wait for completion
         scope._write_checked(f":BUS{bus_number}:EEXP '{csv_scope_path}'")
-
-        # Wait for export to complete
-        await asyncio.sleep(0.5)
+        await scope._wait_for_save_completion(timeout=60.0)
 
         await ctx.report_progress(progress=0.6, message="Downloading CSV file...")
 
