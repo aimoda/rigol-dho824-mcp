@@ -5636,18 +5636,25 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                     normalized_channels.append(ch)
                     seen.add(ch)
 
-        # Save original :AUToset:OPENch setting
-        prev_opench = bool(int(scope._query_checked(":AUToset:OPENch?")))
+        # Only save/modify settings if specific channels requested
+        prev_opench: Optional[bool] = None
+        original_states: Optional[dict] = None
 
-        # Save original channel display states for all channels
-        original_states = {
-            ch: bool(int(scope._query_checked(f":CHAN{ch}:DISP?")))
-            for ch in range(1, 5)
-        }
+        if normalized_channels is not None:
+            # Save original :AUToset:OPENch setting
+            prev_opench = bool(int(scope._query_checked(":AUToset:OPENch?")))
+
+            # Save original channel display states for all channels
+            original_states = {
+                ch: bool(int(scope._query_checked(f":CHAN{ch}:DISP?")))
+                for ch in range(1, 5)
+            }
 
         try:
             # Configure channel display states if specific channels requested
             if normalized_channels is not None:
+                assert original_states is not None  # Set together above
+
                 # Enable requested channels
                 for ch in normalized_channels:
                     if not original_states[ch]:
@@ -5660,9 +5667,9 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
                 # Set :AUToset:OPENch ON to test only enabled channels
                 scope._write_checked(":AUToset:OPENch ON")
-            else:
-                # Set :AUToset:OPENch OFF to test all channels in sequence
-                scope._write_checked(":AUToset:OPENch OFF")
+
+                # Give the scope a moment to settle after configuration changes
+                await asyncio.sleep(0.1)
 
             # Execute autoset
             scope._write_checked(":AUT")
@@ -5676,22 +5683,24 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             return AutoSetupResult(action=SystemAction.AUTO_SETUP, channels=channel_statuses)
 
         finally:
-            # Restore original :AUToset:OPENch setting
-            try:
-                opench_value = "ON" if prev_opench else "OFF"
-                scope._write_checked(f":AUToset:OPENch {opench_value}", raise_on_error=False)
-            except Exception:
-                pass  # Best-effort cleanup
+            # Only restore settings if we modified them
+            if prev_opench is not None:
+                # Restore original :AUToset:OPENch setting
+                try:
+                    opench_value = "ON" if prev_opench else "OFF"
+                    scope._write_checked(f":AUToset:OPENch {opench_value}", raise_on_error=False)
+                except Exception:
+                    pass  # Best-effort cleanup
 
-            # Restore original display states for non-targeted channels
-            if normalized_channels is not None:
-                for ch in range(1, 5):
-                    if ch not in normalized_channels:
-                        try:
-                            state = "ON" if original_states[ch] else "OFF"
-                            scope._write_checked(f":CHAN{ch}:DISP {state}", raise_on_error=False)
-                        except Exception:
-                            pass  # Best-effort cleanup
+                # Restore original display states for non-targeted channels
+                if normalized_channels is not None and original_states is not None:
+                    for ch in range(1, 5):
+                        if ch not in normalized_channels:
+                            try:
+                                state = "ON" if original_states[ch] else "OFF"
+                                scope._write_checked(f":CHAN{ch}:DISP {state}", raise_on_error=False)
+                            except Exception:
+                                pass  # Best-effort cleanup
 
     @mcp.tool
     @with_scope_connection
