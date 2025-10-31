@@ -5677,11 +5677,6 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             # Auto setup takes a moment
             await asyncio.sleep(2)
 
-            # Collect updated channel configurations for all channels
-            channel_statuses = [_query_channel_status(ch) for ch in range(1, 5)]
-
-            return AutoSetupResult(action=SystemAction.AUTO_SETUP, channels=channel_statuses)
-
         finally:
             # Only restore settings if we modified them
             if prev_opench is not None:
@@ -5701,6 +5696,11 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                                 scope._write_checked(f":CHAN{ch}:DISP {state}", raise_on_error=False)
                             except Exception:
                                 pass  # Best-effort cleanup
+
+        # Collect updated channel configurations after restoration
+        channel_statuses = [_query_channel_status(ch) for ch in range(1, 5)]
+
+        return AutoSetupResult(action=SystemAction.AUTO_SETUP, channels=channel_statuses)
 
     @mcp.tool
     @with_scope_connection
