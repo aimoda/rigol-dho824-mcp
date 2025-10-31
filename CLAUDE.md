@@ -145,15 +145,17 @@ self._instr.query_binary_values(":WAV:DATA?", datatype="H")
 
 ## Type Checking
 
-**IMPORTANT**: After writing or modifying Python code, always run `pyright` to check for type errors and fix any issues found.
+**IMPORTANT**: After writing or modifying Python code in `src/`, always run `pyright` on the `src/` directory to check for type errors and fix any issues found.
 
 ```bash
-# Run type checking
-pyright
+# Run type checking on src/
+pyright src/
 
 # Or if installed in venv
-./venv/bin/pyright
+./venv/bin/pyright src/
 ```
+
+**Note**: Only run pyright if you've made changes to files in the `src/` directory. Changes to documentation, tests, or other files don't require type checking.
 
 ## Avoiding Type Annotation Duplication
 
