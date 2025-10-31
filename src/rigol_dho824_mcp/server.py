@@ -19,6 +19,7 @@ from typing_extensions import NotRequired
 import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP, Context
+from fastmcp.server.dependencies import get_context
 from dotenv import load_dotenv
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
@@ -584,6 +585,12 @@ BusNumberField = Annotated[int, Field(ge=1, le=4, description="Bus number (1-4)"
 # === TYPE DEFINITIONS FOR RESULTS ===
 
 
+class ContextIds(TypedDict):
+    """MCP request context identifiers for screenshot metadata."""
+
+    client_id: Optional[str]
+    session_id: Optional[str]
+    request_id: Optional[str]
 
 
 # Channel results
@@ -1828,6 +1835,25 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
     # === INTERNAL HELPER FUNCTIONS ===
 
+    def _maybe_get_context_ids() -> Optional[ContextIds]:
+        """
+        Capture MCP context IDs for the current request, if available.
+
+        Returns None if no context is active (e.g., in unit tests or non-MCP callers).
+        This keeps the screenshot capture working in all environments while
+        optionally enriching metadata when context is available.
+        """
+        try:
+            ctx = get_context()
+            return ContextIds(
+                client_id=ctx.client_id,
+                session_id=ctx.session_id,
+                request_id=ctx.request_id,
+            )
+        except RuntimeError:
+            # No active context (e.g., unit tests, direct calls)
+            return None
+
     async def _capture_screenshot_internal(
         filename_prefix: str, tool_metadata: Optional[dict] = None
     ) -> Optional[str]:
@@ -1843,6 +1869,9 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             File path of saved screenshot (client-translated if applicable), or None if capture failed
         """
         try:
+            # Capture MCP context IDs if available
+            context_ids = _maybe_get_context_ids()
+
             # Set image format to PNG
             scope._write_checked(":SAVE:IMAGe:FORMat PNG")
 
@@ -1904,12 +1933,20 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                     f"Auto-captured after {tool_metadata.get('tool_name', 'tool')} execution"
                 )
                 # UserComment requires 8-byte character code prefix (ASCII\0\0\0)
-                exif[ExifTags.UserComment] = b"ASCII\0\0\0" + f"MCP Server v{mcp_version}".encode('ascii')
+                comment_data = {"mcp_version": mcp_version}
+                if context_ids:
+                    # Only include non-None context values
+                    comment_data = comment_data | {k: v for k, v in context_ids.items() if v is not None}
+                exif[ExifTags.UserComment] = b"ASCII\0\0\0" + json.dumps(comment_data).encode('ascii')
             else:
                 # User screenshot: Generic description
                 exif[ExifTags.ImageDescription] = "Oscilloscope display screenshot"
                 # UserComment requires 8-byte character code prefix (ASCII\0\0\0)
-                exif[ExifTags.UserComment] = b"ASCII\0\0\0" + f"Rigol {model} MCP Server".encode('ascii')
+                comment_data = {"source": f"Rigol {model} MCP Server"}
+                if context_ids:
+                    # Only include non-None context values
+                    comment_data = comment_data | {k: v for k, v in context_ids.items() if v is not None}
+                exif[ExifTags.UserComment] = b"ASCII\0\0\0" + json.dumps(comment_data).encode('ascii')
 
             # === TIER 2: PNG Text Chunks (ALWAYS EMBEDDED) ===
             pnginfo = PngInfo()
@@ -1926,6 +1963,15 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             else:
                 pnginfo.add_text("Description", "Oscilloscope display screenshot")
 
+            # MCP context metadata (if available)
+            if context_ids:
+                if context_ids["client_id"]:
+                    pnginfo.add_text("MCP Client ID", context_ids["client_id"])
+                if context_ids["session_id"]:
+                    pnginfo.add_text("MCP Session ID", context_ids["session_id"])
+                if context_ids["request_id"]:
+                    pnginfo.add_text("MCP Request ID", context_ids["request_id"])
+
             # === TIER 3: Custom MCP Metadata (ONLY FOR AUTO-SCREENSHOTS) ===
             if tool_metadata:
                 # Add ISO timestamp to metadata
@@ -1934,6 +1980,11 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                     "timestamp": iso_datetime,
                     "mcp_version": mcp_version,
                 }
+                # Include context IDs if available (filter out None values)
+                if context_ids:
+                    filtered_context = {k: v for k, v in context_ids.items() if v is not None}
+                    if filtered_context:
+                        tool_metadata_with_time["context_ids"] = filtered_context
                 pnginfo.add_itxt(
                     "MCP:Tool",
                     json.dumps(tool_metadata_with_time, indent=2, default=str),
