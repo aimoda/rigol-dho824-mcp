@@ -132,6 +132,10 @@ FrameCountField = Annotated[int, Field(description="Number of frames to record",
 FrameIntervalField = Annotated[float, Field(description="Time interval between frames in seconds", ge=10e-9, le=1.0)]
 
 # Channel-related fields
+EnabledField = Annotated[bool, Field(description="Enable state")]
+InvertedField = Annotated[bool, Field(description="Inversion state")]
+BandwidthLimitField = Annotated[BandwidthLimit, Field(description="Bandwidth limit setting")]
+LabelVisibleField = Annotated[bool, Field(description="Label visibility state")]
 ChannelLabelField = Annotated[str, Field(description="Custom label string (max 4 characters)", max_length=4)]
 
 # Delayed timebase fields
@@ -594,66 +598,20 @@ class ContextIds(TypedDict):
 
 
 # Channel results
-class ChannelEnableResult(TypedDict):
-    """Result for channel enable/disable operations."""
+class ChannelConfigResult(TypedDict):
+    """Complete channel configuration including all settings."""
 
     channel: ChannelNumber
-    enabled: Annotated[bool, Field(description="Whether the channel is enabled")]
-
-
-class ChannelCouplingResult(TypedDict):
-    """Result for channel coupling settings."""
-
-    channel: ChannelNumber
-    coupling: Annotated[ChannelCoupling, Field(description="Coupling mode")]
-
-
-class ChannelProbeResult(TypedDict):
-    """Result for channel probe settings."""
-
-    channel: ChannelNumber
-    probe_ratio: ProbeRatioField
-
-
-class ChannelBandwidthResult(TypedDict):
-    """Result for channel bandwidth settings."""
-
-    channel: ChannelNumber
-    bandwidth_limit: Annotated[
-        Literal["OFF", "20MHz"], Field(description="Bandwidth limit setting")
-    ]
-
-
-class ChannelStatusResult(TypedDict):
-    """Comprehensive channel status."""
-
-    channel: ChannelNumber
-    enabled: Annotated[bool, Field(description="Whether channel is enabled")]
+    enabled: EnabledField
     coupling: Annotated[ChannelCoupling, Field(description="Coupling mode")]
     probe_ratio: ProbeRatioField
-    bandwidth_limit: Annotated[
-        Literal["OFF", "20MHz"], Field(description="Bandwidth limit")
-    ]
+    bandwidth_limit: BandwidthLimitField
     vertical_scale: VerticalScaleField
     vertical_offset: VerticalOffsetField
-    invert: Annotated[bool, Field(description="Whether channel is inverted")]
-    units: GenericUnitsField
-
-
-class VerticalScaleResult(TypedDict):
-    """Result for vertical scale settings."""
-
-    channel: ChannelNumber
-    vertical_scale: VerticalScaleField
-    units: GenericUnitsField
-
-
-class VerticalOffsetResult(TypedDict):
-    """Result for vertical offset settings."""
-
-    channel: ChannelNumber
-    vertical_offset: VerticalOffsetField
-    units: GenericUnitsField
+    inverted: InvertedField
+    units: Annotated[ChannelUnits, Field(description="Display units")]
+    label: ChannelLabelField
+    label_visible: LabelVisibleField
 
 
 # Timebase results
@@ -721,35 +679,6 @@ class UltraAcquisitionResult(TypedDict):
     timeout: UltraTimeoutField
     max_frames: MaxFramesField
     message: Annotated[str, Field(description="Configuration summary")]
-
-
-# Channel settings results
-class ChannelInvertResult(TypedDict):
-    """Result for channel invert settings."""
-
-    channel: ChannelNumber
-    inverted: Annotated[bool, Field(description="Channel is inverted")]
-
-
-class ChannelLabelResult(TypedDict):
-    """Result for channel label settings."""
-
-    channel: ChannelNumber
-    label: ChannelLabelField
-
-
-class ChannelLabelVisibilityResult(TypedDict):
-    """Result for channel label visibility settings."""
-
-    channel: ChannelNumber
-    visible: Annotated[bool, Field(description="Label is visible")]
-
-
-class ChannelUnitsResult(TypedDict):
-    """Result for channel units settings."""
-
-    channel: ChannelNumber
-    units: Annotated[ChannelUnits, Field(description="Display units")]
 
 
 # Timebase settings results
@@ -896,7 +825,7 @@ class AutoSetupResult(ActionResult):
     """Result for auto setup operation with channel configurations."""
 
     channels: Annotated[
-        List[ChannelStatusResult], Field(description="Channel configurations after auto setup")
+        List[ChannelConfigResult], Field(description="Channel configurations after auto setup")
     ]
 
 
@@ -2424,107 +2353,13 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
     # === CHANNEL CONTROL TOOLS ===
 
-    @mcp.tool
-    @with_scope_connection
-    async def set_channel_enable(
-        channel: ChannelNumber,
-        enabled: Annotated[bool, Field(description="True to enable, False to disable")],
-    ) -> ChannelEnableResult:
+    def _query_channel_config(channel: int) -> ChannelConfigResult:
         """
-        Enable or disable a channel display.
-        """
-        state = "ON" if enabled else "OFF"
-        scope._write_checked(f":CHAN{channel}:DISP {state}")
+        Query complete channel configuration from oscilloscope.
 
-        # Verify the setting
-        actual_state = int(scope._query_checked(f":CHAN{channel}:DISP?"))
-
-        return ChannelEnableResult(channel=channel, enabled=bool(actual_state))
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_channel_coupling(
-        channel: ChannelNumber,
-        coupling: Annotated[
-            ChannelCoupling, Field(description="Coupling mode: AC, DC, or GND")
-        ],
-    ) -> ChannelCouplingResult:
-        """
-        Set channel coupling mode.
-        """
-        # Use enum value directly
-        scope._write_checked(f":CHAN{channel}:COUP {coupling}")
-
-        # Verify the setting
-        actual_coupling = scope._query_checked(f":CHAN{channel}:COUP?").strip()
-
-        return ChannelCouplingResult(
-            channel=channel, coupling=map_coupling_mode(actual_coupling)
-        )
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_channel_probe(
-        channel: ChannelNumber, probe_ratio: ProbeRatioField
-    ) -> ChannelProbeResult:
-        """
-        Set channel probe attenuation ratio.
-        """
-        # Format as integer if it's a whole number, otherwise as float
-        probe_value = (
-            int(probe_ratio) if float(probe_ratio).is_integer() else float(probe_ratio)
-        )
-        scope._write_checked(f":CHAN{channel}:PROB {probe_value}")
-
-        # Verify the setting
-        actual_ratio = float(scope._query_checked(f":CHAN{channel}:PROB?"))
-
-        return ChannelProbeResult(channel=channel, probe_ratio=actual_ratio)
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_channel_bandwidth(
-        channel: ChannelNumber,
-        bandwidth_limit: Annotated[
-            Optional[Literal["OFF", "20MHz"]],
-            Field(description="Bandwidth limit: OFF or 20MHz. Default is OFF"),
-        ] = None,
-    ) -> ChannelBandwidthResult:
-        """
-        Set channel bandwidth limit to reduce noise and filter high frequencies.
-
-        The bandwidth limit attenuates high frequency components in the signal that
-        are greater than the specified limit. This is useful for reducing noise in
-        displayed waveforms while preserving the lower frequency components of interest.
-
-        The DHO800 series supports:
-        - OFF: Full bandwidth (no limiting)
-        - 20MHz: 20 MHz bandwidth limit
-
-        Note: Bandwidth limiting not only reduces noise but also attenuates or eliminates
-        the high frequency components of the signal.
-        """
-        if bandwidth_limit is None:
-            bandwidth_limit = "OFF"
-
-        # Map user-friendly value to SCPI
-        bw_value = "20M" if bandwidth_limit == "20MHz" else "OFF"
-        scope._write_checked(f":CHAN{channel}:BWL {bw_value}")
-
-        # Verify the setting
-        actual_bw = scope._query_checked(f":CHAN{channel}:BWL?").strip()
-
-        # Map response to enum
-        result_bw = "20MHz" if actual_bw == "20M" else "OFF"
-
-        return ChannelBandwidthResult(channel=channel, bandwidth_limit=result_bw)
-
-    def _query_channel_status(channel: int) -> ChannelStatusResult:
-        """
-        Query comprehensive channel status from oscilloscope.
-
-        Internal helper for getting channel configuration. Used by get_channel_status
-        tool and auto_setup to avoid duplicating SCPI queries.
+        Internal helper for getting comprehensive channel settings including
+        label and label visibility. Used by get_channel_config tool and
+        set_channel_config to return current state after updates.
         """
         # Query all channel settings
         enabled = bool(int(scope._query_checked(f":CHAN{channel}:DISP?")))
@@ -2533,13 +2368,24 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         bw_limit = scope._query_checked(f":CHAN{channel}:BWL?").strip()
         vertical_scale = float(scope._query_checked(f":CHAN{channel}:SCAL?"))
         vertical_offset = float(scope._query_checked(f":CHAN{channel}:OFFS?"))
-        invert = bool(int(scope._query_checked(f":CHAN{channel}:INV?")))
-        units = scope._query_checked(f":CHAN{channel}:UNIT?").strip()
+        inverted = bool(int(scope._query_checked(f":CHAN{channel}:INV?")))
+        units_str = scope._query_checked(f":CHAN{channel}:UNIT?").strip()
+        label = scope._query_checked(f":CHAN{channel}:LAB:CONT?").strip().strip('"')
+        label_visible = bool(int(scope._query_checked(f":CHAN{channel}:LAB:SHOW?")))
 
-        # Map bandwidth limit
-        bandwidth_limit = "20MHz" if bw_limit == "20M" else "OFF"
+        # Map bandwidth limit to enum
+        bandwidth_limit = BandwidthLimit.MHZ_20 if bw_limit == "20M" else BandwidthLimit.OFF
 
-        return ChannelStatusResult(
+        # Map units string to enum
+        units_map = {
+            "VOLT": ChannelUnits.VOLT,
+            "WATT": ChannelUnits.WATT,
+            "AMP": ChannelUnits.AMPERE,
+            "UNKN": ChannelUnits.UNKNOWN,
+        }
+        units = units_map.get(units_str[:4], ChannelUnits.VOLT)
+
+        return ChannelConfigResult(
             channel=channel,
             enabled=enabled,
             coupling=map_coupling_mode(coupling),
@@ -2547,128 +2393,92 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             bandwidth_limit=bandwidth_limit,
             vertical_scale=vertical_scale,
             vertical_offset=vertical_offset,
-            invert=invert,
+            inverted=inverted,
             units=units,
+            label=label,
+            label_visible=label_visible,
         )
 
     @mcp.tool
     @with_scope_connection
-    async def get_channel_status(channel: ChannelNumber) -> ChannelStatusResult:
+    async def set_channel_config(
+        channel: ChannelNumber,
+        enabled: Optional[EnabledField] = None,
+        coupling: Optional[Annotated[ChannelCoupling, Field(description="Coupling mode (AC, DC, or GND)")]] = None,
+        probe_ratio: Optional[ProbeRatioField] = None,
+        bandwidth_limit: Optional[BandwidthLimitField] = None,
+        vertical_scale: Optional[VerticalScaleField] = None,
+        vertical_offset: Optional[VerticalOffsetField] = None,
+        inverted: Optional[InvertedField] = None,
+        units: Optional[Annotated[ChannelUnits, Field(description="Display units")]] = None,
+        label: Optional[ChannelLabelField] = None,
+        label_visible: Optional[LabelVisibleField] = None,
+    ) -> ChannelConfigResult:
         """
-        Get comprehensive channel status and settings.
-        """
-        return _query_channel_status(channel)
+        Configure channel settings. Only provided parameters are modified.
 
-    # === PRIORITY 1: CHANNEL SETTINGS ===
+        Apply multiple channel configuration parameters in a single call. Any
+        parameter not provided will remain unchanged. Returns complete channel
+        configuration after applying changes.
+        """
+        # Apply settings in logical order: enable first, then probe (affects scale limits), then scale/offset
+
+        # 1. Enable/disable channel
+        if enabled is not None:
+            scope._write_checked(f":CHAN{channel}:DISP {'ON' if enabled else 'OFF'}")
+
+        # 2. Probe ratio (affects scale limits)
+        if probe_ratio is not None:
+            # Convert to int if it's a whole number
+            probe_value = int(probe_ratio) if probe_ratio == int(probe_ratio) else probe_ratio
+            scope._write_checked(f":CHAN{channel}:PROB {probe_value}")
+
+        # 3. Coupling mode
+        if coupling is not None:
+            scope._write_checked(f":CHAN{channel}:COUP {coupling}")
+
+        # 4. Bandwidth limit
+        if bandwidth_limit is not None:
+            # Map enum to SCPI value
+            bw_value = "20M" if bandwidth_limit == BandwidthLimit.MHZ_20 else "OFF"
+            scope._write_checked(f":CHAN{channel}:BWL {bw_value}")
+
+        # 5. Vertical scale
+        if vertical_scale is not None:
+            scope._write_checked(f":CHAN{channel}:SCAL {vertical_scale}")
+
+        # 6. Vertical offset
+        if vertical_offset is not None:
+            scope._write_checked(f":CHAN{channel}:OFFS {vertical_offset}")
+
+        # 7. Inversion
+        if inverted is not None:
+            scope._write_checked(f":CHAN{channel}:INV {'ON' if inverted else 'OFF'}")
+
+        # 8. Display units
+        if units is not None:
+            scope._write_checked(f":CHAN{channel}:UNIT {units.value}")
+
+        # 9. Label text
+        if label is not None:
+            scope._write_checked(f':CHAN{channel}:LAB:CONT "{label}"')
+
+        # 10. Label visibility
+        if label_visible is not None:
+            scope._write_checked(f":CHAN{channel}:LAB:SHOW {'ON' if label_visible else 'OFF'}")
+
+        # Return complete configuration after changes
+        return _query_channel_config(channel)
 
     @mcp.tool
     @with_scope_connection
-    async def set_channel_invert(
-        channel: ChannelNumber,
-        inverted: Annotated[bool, Field(description="Boolean to invert")]
-    ) -> ChannelInvertResult:
+    async def get_channel_config(channel: ChannelNumber) -> ChannelConfigResult:
         """
-        Invert channel waveform display (multiply by -1).
+        Get complete channel configuration including all settings.
         """
-        scope._write_checked(f":CHAN{channel}:INV {'ON' if inverted else 'OFF'}")
-
-        # Verify the setting
-        actual_invert = bool(int(scope._query_checked(f":CHAN{channel}:INV?")))
-
-        return ChannelInvertResult(channel=channel, inverted=actual_invert)
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_channel_label(
-        channel: ChannelNumber,
-        label: ChannelLabelField
-    ) -> ChannelLabelResult:
-        """
-        Set custom channel label text.
-        """
-        scope._write_checked(f':CHAN{channel}:LAB:CONT "{label}"')
-
-        # Verify the setting
-        actual_label = scope._query_checked(f":CHAN{channel}:LAB:CONT?").strip().strip('"')
-
-        return ChannelLabelResult(channel=channel, label=actual_label)
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_channel_label_visible(
-        channel: ChannelNumber,
-        visible: Annotated[bool, Field(description="Boolean to show/hide")]
-    ) -> ChannelLabelVisibilityResult:
-        """
-        Show or hide custom channel label.
-        """
-        scope._write_checked(f":CHAN{channel}:LAB:SHOW {'ON' if visible else 'OFF'}")
-
-        # Verify the setting
-        actual_visible = bool(int(scope._query_checked(f":CHAN{channel}:LAB:SHOW?")))
-
-        return ChannelLabelVisibilityResult(channel=channel, visible=actual_visible)
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_channel_units(
-        channel: ChannelNumber,
-        units: Annotated[ChannelUnits, Field(description='Unit type ("VOLT", "WATT", "AMPERE", "UNKNOWN")')]
-    ) -> ChannelUnitsResult:
-        """
-        Set voltage display units for channel.
-        """
-        scope._write_checked(f":CHAN{channel}:UNIT {units.value}")
-
-        # Verify the setting
-        actual_units_str = scope._query_checked(f":CHAN{channel}:UNIT?").strip()
-
-        # Map SCPI response to enum
-        units_map = {
-            "VOLT": ChannelUnits.VOLT,
-            "WATT": ChannelUnits.WATT,
-            "AMP": ChannelUnits.AMPERE,
-            "UNKN": ChannelUnits.UNKNOWN,
-        }
-        actual_units = units_map.get(actual_units_str[:4], ChannelUnits.VOLT)
-
-        return ChannelUnitsResult(channel=channel, units=actual_units)
+        return _query_channel_config(channel)
 
     # === SCALE ADJUSTMENT TOOLS ===
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_vertical_scale(
-        channel: ChannelNumber, vertical_scale: VerticalScaleField
-    ) -> VerticalScaleResult:
-        """
-        Set channel vertical scale (V/div).
-        """
-        scope._write_checked(f":CHAN{channel}:SCAL {vertical_scale}")
-
-        # Verify the setting
-        actual_scale = float(scope._query_checked(f":CHAN{channel}:SCAL?"))
-
-        return VerticalScaleResult(
-            channel=channel, vertical_scale=actual_scale, units="V/div"
-        )
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_vertical_offset(
-        channel: ChannelNumber, vertical_offset: VerticalOffsetField
-    ) -> VerticalOffsetResult:
-        """
-        Set channel vertical offset.
-        """
-        scope._write_checked(f":CHAN{channel}:OFFS {vertical_offset}")
-
-        # Verify the setting
-        actual_offset = float(scope._query_checked(f":CHAN{channel}:OFFS?"))
-
-        return VerticalOffsetResult(
-            channel=channel, vertical_offset=actual_offset, units="V"
-        )
 
     @mcp.tool
     @with_scope_connection
@@ -5716,9 +5526,9 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                                 pass  # Best-effort cleanup
 
         # Collect updated channel configurations after restoration
-        channel_statuses = [_query_channel_status(ch) for ch in range(1, 5)]
+        channel_configs = [_query_channel_config(ch) for ch in range(1, 5)]
 
-        return AutoSetupResult(action=SystemAction.AUTO_SETUP, channels=channel_statuses)
+        return AutoSetupResult(action=SystemAction.AUTO_SETUP, channels=channel_configs)
 
     @mcp.tool
     @with_scope_connection
