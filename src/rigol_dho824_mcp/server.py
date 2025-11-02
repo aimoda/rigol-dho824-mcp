@@ -138,9 +138,9 @@ BandwidthLimitField = Annotated[BandwidthLimit, Field(description="Bandwidth lim
 LabelVisibleField = Annotated[bool, Field(description="Label visibility state")]
 ChannelLabelField = Annotated[str, Field(description="Custom label string (max 4 characters)", max_length=4)]
 
-# Timebase fields
-MainTimeScaleField = Annotated[float, Field(description="Time per division in seconds")]
-DelayedTimeScaleField = Annotated[float, Field(description="Zoom window time per division in seconds")]
+# Timebase fields (note: TimebaseModeField defined after TimebaseMode enum at line ~563)
+MainTimeScaleField = Annotated[float, Field(ge=5e-9, le=500, description="Time per division in seconds (5 ns/div to 500 s/div)")]
+DelayedTimeScaleField = Annotated[float, Field(le=500, description="Zoom window time per division in seconds (must be ≤ main scale)")]
 DelayedTimeOffsetField = Annotated[float, Field(description="Zoom window offset in seconds")]
 
 # Hardware counter fields
@@ -560,6 +560,10 @@ class BitOrder(str, Enum):
     MSB = "MSB"  # Most significant bit first
 
 
+# Timebase mode field (defined here after TimebaseMode enum)
+TimebaseModeField = Annotated[TimebaseMode, Field(description="Timebase mode")]
+
+
 # === PROTOCOL-SPECIFIC TYPE ALIASES ===
 
 # Baud rate field
@@ -619,7 +623,7 @@ class ChannelConfigResult(TypedDict):
 class TimebaseConfigResult(TypedDict):
     """Complete timebase configuration."""
 
-    mode: Annotated[TimebaseMode, Field(description="Timebase mode")]
+    mode: TimebaseModeField
     time_per_div: MainTimeScaleField
     time_offset: TimeOffsetField
     delayed_enabled: Annotated[bool, Field(description="Whether delayed/zoom timebase is enabled")]
@@ -2466,7 +2470,9 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             "XY": TimebaseMode.XY,
             "ROLL": TimebaseMode.ROLL,
         }
-        mode = mode_map.get(mode_str, TimebaseMode.MAIN)
+        mode = mode_map.get(mode_str)
+        if mode is None:
+            raise ValueError(f"Unknown timebase mode from oscilloscope: {mode_str}")
 
         # Query main timebase settings
         time_per_div = float(scope._query_checked(":TIM:MAIN:SCAL?"))
@@ -2502,7 +2508,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
     @mcp.tool
     @with_scope_connection
     async def set_timebase_config(
-        mode: Optional[Annotated[TimebaseMode, Field(description="Timebase mode")]] = None,
+        mode: Optional[TimebaseModeField] = None,
         time_per_div: Optional[MainTimeScaleField] = None,
         time_offset: Optional[TimeOffsetField] = None,
         delayed_enabled: Optional[Annotated[bool, Field(description="Enable delayed/zoom timebase")]] = None,
