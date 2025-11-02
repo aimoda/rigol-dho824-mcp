@@ -28,6 +28,28 @@ import pyvisa
 import pyvisa.resources
 
 
+# === SCPI HELPER FUNCTIONS ===
+
+# SCPI boolean response normalization
+_BOOL_TRUE = {"1", "ON", "TRUE", "YES"}
+_BOOL_FALSE = {"0", "OFF", "FALSE", "NO"}
+
+
+def _parse_scpi_bool(value: str) -> bool:
+    """
+    Normalize SCPI boolean responses (1/0, ON/OFF, etc.).
+
+    Handles various SCPI boolean formats returned by oscilloscopes.
+    Case-insensitive and whitespace-tolerant.
+    """
+    normalized = value.strip().upper()
+    if normalized in _BOOL_TRUE:
+        return True
+    if normalized in _BOOL_FALSE:
+        return False
+    raise ValueError(f"Unexpected boolean response from oscilloscope: {value!r}")
+
+
 # === ENUMS FOR CONSTRAINED VALUES ===
 
 
@@ -71,7 +93,6 @@ TimeOffsetField = Annotated[float, Field(description="Time offset in seconds")]
 
 # Units field aliases for different contexts
 VoltageUnitsField = Annotated[str, Field(description="Voltage units (V, mV, μV, nV)")]
-TimeUnitsField = Annotated[str, Field(description="Time units (s, ms, μs, ns)")]
 SampleRateUnitsField = Annotated[
     str, Field(description="Sample rate units (Sa/s, MSa/s, GSa/s)")
 ]
@@ -81,7 +102,6 @@ GenericUnitsField = Annotated[str, Field(description="Measurement units")]
 HumanReadableMemoryField = Annotated[
     str, Field(description="Human-readable memory depth")
 ]
-HumanReadableTimeField = Annotated[str, Field(description="Human-readable time scale")]
 HumanReadableSampleRateField = Annotated[
     str, Field(description="Human-readable sample rate")
 ]
@@ -140,7 +160,7 @@ ChannelLabelField = Annotated[str, Field(description="Custom label string (max 4
 
 # Timebase fields (note: TimebaseModeField defined after TimebaseMode enum at line ~563)
 MainTimeScaleField = Annotated[float, Field(ge=5e-9, le=500, description="Time per division in seconds (5 ns/div to 500 s/div)")]
-DelayedTimeScaleField = Annotated[float, Field(le=500, description="Zoom window time per division in seconds (must be ≤ main scale)")]
+DelayedTimeScaleField = Annotated[float, Field(ge=5e-9, le=500, description="Zoom window time per division in seconds (must be ≤ main scale)")]
 DelayedTimeOffsetField = Annotated[float, Field(description="Zoom window offset in seconds")]
 
 # Hardware counter fields
@@ -1348,6 +1368,26 @@ class RigolDHO824:
             raise Exception(f"SCPI error after '{command}': {error_response}")
         return response
 
+    def _query_bool_checked(self, command: str) -> bool:
+        """
+        Query a SCPI boolean and normalize textual/numeric replies.
+
+        Handles both numeric (0/1) and textual (ON/OFF, TRUE/FALSE) boolean
+        responses from the oscilloscope. Automatically checks error queue.
+
+        Args:
+            command: SCPI query command to send
+
+        Returns:
+            Boolean value (True or False)
+
+        Raises:
+            ValueError: If response is not a recognized boolean format
+            Exception: If SCPI error is detected after command execution
+        """
+        response = self._query_checked(command)
+        return _parse_scpi_bool(response)
+
     def _query_binary_values_checked(
         self, command: str, **kwargs
     ) -> Union[Sequence[Union[int, float]], bytes]:
@@ -2357,16 +2397,16 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         set_channel_config to return current state after updates.
         """
         # Query all channel settings
-        enabled = bool(int(scope._query_checked(f":CHAN{channel}:DISP?")))
+        enabled = scope._query_bool_checked(f":CHAN{channel}:DISP?")
         coupling = scope._query_checked(f":CHAN{channel}:COUP?").strip()
         probe_ratio = float(scope._query_checked(f":CHAN{channel}:PROB?"))
         bw_limit = scope._query_checked(f":CHAN{channel}:BWL?").strip()
         vertical_scale = float(scope._query_checked(f":CHAN{channel}:SCAL?"))
         vertical_offset = float(scope._query_checked(f":CHAN{channel}:OFFS?"))
-        inverted = bool(int(scope._query_checked(f":CHAN{channel}:INV?")))
+        inverted = scope._query_bool_checked(f":CHAN{channel}:INV?")
         units_str = scope._query_checked(f":CHAN{channel}:UNIT?").strip()
         label = scope._query_checked(f":CHAN{channel}:LAB:CONT?").strip().strip('"')
-        label_visible = bool(int(scope._query_checked(f":CHAN{channel}:LAB:SHOW?")))
+        label_visible = scope._query_bool_checked(f":CHAN{channel}:LAB:SHOW?")
 
         # Map bandwidth limit to enum
         bandwidth_limit = BandwidthLimit.MHZ_20 if bw_limit == "20M" else BandwidthLimit.OFF
@@ -2499,7 +2539,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         time_offset = float(scope._query_checked(":TIM:MAIN:OFFS?"))
 
         # Query delayed timebase settings
-        delayed_enabled = bool(int(scope._query_checked(":TIM:DEL:ENAB?")))
+        delayed_enabled = scope._query_bool_checked(":TIM:DEL:ENAB?")
 
         result: TimebaseConfigResult = {
             "mode": mode,
@@ -2560,13 +2600,24 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         # 4. Delayed parameters (only if being enabled or already enabled)
         # Query current delayed state to determine if we can set delayed parameters
         if delayed_time_per_div is not None or delayed_time_offset is not None:
-            current_delayed = delayed_enabled if delayed_enabled is not None else bool(
-                int(scope._query_checked(":TIM:DEL:ENAB?"))
-            )
+            current_delayed = delayed_enabled if delayed_enabled is not None else scope._query_bool_checked(":TIM:DEL:ENAB?")
 
             if delayed_time_per_div is not None:
                 if not current_delayed:
                     raise ValueError("Cannot set delayed timebase scale when delayed timebase is disabled")
+
+                # Validate delayed scale doesn't exceed main scale
+                effective_main_scale = (
+                    float(time_per_div)
+                    if time_per_div is not None
+                    else float(scope._query_checked(":TIM:MAIN:SCAL?"))
+                )
+                if delayed_time_per_div > effective_main_scale:
+                    raise ValueError(
+                        f"Delayed timebase scale ({delayed_time_per_div} s/div) cannot exceed "
+                        f"main timebase scale ({effective_main_scale} s/div)"
+                    )
+
                 scope._write_checked(f":TIM:DEL:SCAL {delayed_time_per_div}")
 
             if delayed_time_offset is not None:
@@ -2710,7 +2761,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         await asyncio.sleep(0.1)
 
         # Query current state to confirm
-        enabled = bool(int(scope._query_checked(":RECord:WRECord:ENABle?")))
+        enabled = scope._query_bool_checked(":RECord:WRECord:ENABle?")
         operation_str = scope._query_checked(":RECord:WRECord:OPERate?").strip()
         actual_frames = int(scope._query_checked(":RECord:WRECord:FRAMes?"))
         actual_interval = float(scope._query_checked(":RECord:WRECord:FINTerval?"))
@@ -2739,7 +2790,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         await asyncio.sleep(0.1)
 
         # Query current state
-        enabled = bool(int(scope._query_checked(":RECord:WRECord:ENABle?")))
+        enabled = scope._query_bool_checked(":RECord:WRECord:ENABle?")
         operation_str = scope._query_checked(":RECord:WRECord:OPERate?").strip()
         actual_frames = int(scope._query_checked(":RECord:WRECord:FRAMes?"))
         actual_interval = float(scope._query_checked(":RECord:WRECord:FINTerval?"))
@@ -2760,7 +2811,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         Query current recording status and configuration.
         """
         # Query current state
-        enabled = bool(int(scope._query_checked(":RECord:WRECord:ENABle?")))
+        enabled = scope._query_bool_checked(":RECord:WRECord:ENABle?")
         operation_str = scope._query_checked(":RECord:WRECord:OPERate?").strip()
         actual_frames = int(scope._query_checked(":RECord:WRECord:FRAMes?"))
         actual_interval = float(scope._query_checked(":RECord:WRECord:FINTerval?"))
@@ -5434,11 +5485,11 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
         if normalized_channels is not None:
             # Save original :AUToset:OPENch setting
-            prev_opench = bool(int(scope._query_checked(":AUToset:OPENch?")))
+            prev_opench = scope._query_bool_checked(":AUToset:OPENch?")
 
             # Save original channel display states for all channels
             original_states = {
-                ch: bool(int(scope._query_checked(f":CHAN{ch}:DISP?")))
+                ch: scope._query_bool_checked(f":CHAN{ch}:DISP?")
                 for ch in range(1, 5)
             }
 
@@ -5687,12 +5738,12 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         scope._write_checked(f":COUN:TOT:ENAB {'ON' if totalize_enabled else 'OFF'}")
 
         # Verify settings
-        actual_enabled = bool(int(scope._query_checked(":COUN:ENAB?")))
+        actual_enabled = scope._query_bool_checked(":COUN:ENAB?")
         actual_source = scope._query_checked(":COUN:SOUR?").strip()
         actual_channel = _parse_channel_from_scpi(actual_source)
         actual_mode_str = scope._query_checked(":COUN:MODE?").strip()
         actual_digits = int(scope._query_checked(":COUN:NDIG?"))
-        actual_totalize = bool(int(scope._query_checked(":COUN:TOT:ENAB?")))
+        actual_totalize = scope._query_bool_checked(":COUN:TOT:ENAB?")
 
         # Map SCPI response to enum
         mode_map = {
