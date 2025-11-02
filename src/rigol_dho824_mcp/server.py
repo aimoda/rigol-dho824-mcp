@@ -138,7 +138,8 @@ BandwidthLimitField = Annotated[BandwidthLimit, Field(description="Bandwidth lim
 LabelVisibleField = Annotated[bool, Field(description="Label visibility state")]
 ChannelLabelField = Annotated[str, Field(description="Custom label string (max 4 characters)", max_length=4)]
 
-# Delayed timebase fields
+# Timebase fields
+MainTimeScaleField = Annotated[float, Field(description="Time per division in seconds")]
 DelayedTimeScaleField = Annotated[float, Field(description="Zoom window time per division in seconds")]
 DelayedTimeOffsetField = Annotated[float, Field(description="Zoom window offset in seconds")]
 
@@ -615,18 +616,15 @@ class ChannelConfigResult(TypedDict):
 
 
 # Timebase results
-class TimebaseScaleResult(TypedDict):
-    """Result for timebase scale settings."""
+class TimebaseConfigResult(TypedDict):
+    """Complete timebase configuration."""
 
-    time_per_div: Annotated[float, Field(description="Time per division in seconds")]
-    time_per_div_str: HumanReadableTimeField
-
-
-class TimebaseOffsetResult(TypedDict):
-    """Result for timebase offset settings."""
-
+    mode: Annotated[TimebaseMode, Field(description="Timebase mode")]
+    time_per_div: MainTimeScaleField
     time_offset: TimeOffsetField
-    units: TimeUnitsField
+    delayed_enabled: Annotated[bool, Field(description="Whether delayed/zoom timebase is enabled")]
+    delayed_time_per_div: NotRequired[DelayedTimeScaleField]
+    delayed_time_offset: NotRequired[DelayedTimeOffsetField]
 
 
 # Acquisition results
@@ -679,33 +677,6 @@ class UltraAcquisitionResult(TypedDict):
     timeout: UltraTimeoutField
     max_frames: MaxFramesField
     message: Annotated[str, Field(description="Configuration summary")]
-
-
-# Timebase settings results
-class TimebaseModeResult(TypedDict):
-    """Result for timebase mode settings."""
-
-    mode: Annotated[TimebaseMode, Field(description="Timebase mode (MAIN, XY, or ROLL)")]
-
-
-class DelayedTimebaseEnableResult(TypedDict):
-    """Result for delayed timebase enable settings."""
-
-    enabled: Annotated[bool, Field(description="Delayed timebase is enabled")]
-
-
-class DelayedTimebaseScaleResult(TypedDict):
-    """Result for delayed timebase scale settings."""
-
-    time_per_div: DelayedTimeScaleField
-    time_per_div_str: HumanReadableTimeField
-
-
-class DelayedTimebaseOffsetResult(TypedDict):
-    """Result for delayed timebase offset settings."""
-
-    time_offset: DelayedTimeOffsetField
-    units: TimeUnitsField
 
 
 # Hardware counter results
@@ -2478,140 +2449,107 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         """
         return _query_channel_config(channel)
 
-    # === SCALE ADJUSTMENT TOOLS ===
+    # === TIMEBASE TOOLS ===
 
-    @mcp.tool
-    @with_scope_connection
-    async def set_timebase_scale(
-        time_per_div: Annotated[
-            float, Field(description="Time per division in seconds")
-        ]
-    ) -> TimebaseScaleResult:
+    def _query_timebase_config() -> TimebaseConfigResult:
         """
-        Set horizontal timebase scale.
+        Query complete timebase configuration from oscilloscope.
+
+        Internal helper for getting all main and delayed timebase settings.
+        Used by get_timebase_config tool and set_timebase_config to return
+        current state after updates.
         """
-        scope._write_checked(f":TIM:MAIN:SCAL {time_per_div}")
-
-        # Verify the setting
-        actual_scale = float(scope._query_checked(":TIM:MAIN:SCAL?"))
-
-        # Convert to human-readable format
-        if actual_scale >= 1:
-            scale_str = f"{actual_scale:.2f} s/div"
-        elif actual_scale >= 1e-3:
-            scale_str = f"{actual_scale*1e3:.2f} ms/div"
-        elif actual_scale >= 1e-6:
-            scale_str = f"{actual_scale*1e6:.2f} μs/div"
-        else:
-            scale_str = f"{actual_scale*1e9:.2f} ns/div"
-
-        return TimebaseScaleResult(
-            time_per_div=actual_scale, time_per_div_str=scale_str
-        )
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_timebase_offset(time_offset: TimeOffsetField) -> TimebaseOffsetResult:
-        """
-        Set horizontal timebase offset.
-        """
-        scope._write_checked(f":TIM:MAIN:OFFS {time_offset}")
-
-        # Verify the setting
-        actual_offset = float(scope._query_checked(":TIM:MAIN:OFFS?"))
-
-        return TimebaseOffsetResult(time_offset=actual_offset, units="s")
-
-    # === PRIORITY 1: TIMEBASE SETTINGS ===
-
-    @mcp.tool
-    @with_scope_connection
-    async def set_timebase_mode(
-        mode: Annotated[TimebaseMode, Field(description='Timebase mode ("MAIN", "XY", "ROLL")')]
-    ) -> TimebaseModeResult:
-        """
-        Set timebase display mode.
-
-        - **MAIN**: Normal YT mode
-        - **XY**: Lissajous/XY mode (Ch1 = X axis, Ch2 = Y axis)
-        - **ROLL**: Slow sweep roll mode (for low frequencies)
-        """
-        scope._write_checked(f":TIM:MODE {mode.value}")
-
-        # Verify the setting
-        actual_mode_str = scope._query_checked(":TIM:MODE?").strip()
-
-        # Map SCPI response to enum
+        # Query mode
+        mode_str = scope._query_checked(":TIM:MODE?").strip()
         mode_map = {
             "MAIN": TimebaseMode.MAIN,
             "XY": TimebaseMode.XY,
             "ROLL": TimebaseMode.ROLL,
         }
-        actual_mode = mode_map.get(actual_mode_str, TimebaseMode.MAIN)
+        mode = mode_map.get(mode_str, TimebaseMode.MAIN)
 
-        return TimebaseModeResult(mode=actual_mode)
+        # Query main timebase settings
+        time_per_div = float(scope._query_checked(":TIM:MAIN:SCAL?"))
+        time_offset = float(scope._query_checked(":TIM:MAIN:OFFS?"))
 
-    @mcp.tool
-    @with_scope_connection
-    async def enable_delayed_timebase(
-        enabled: Annotated[bool, Field(description="Boolean to enable zoom window")]
-    ) -> DelayedTimebaseEnableResult:
-        """
-        Enable or disable delayed/zoom timebase (zoomed window).
-        """
-        scope._write_checked(f":TIM:DEL:ENAB {'ON' if enabled else 'OFF'}")
+        # Query delayed timebase settings
+        delayed_enabled = bool(int(scope._query_checked(":TIM:DEL:ENAB?")))
 
-        # Verify the setting
-        actual_enabled = bool(int(scope._query_checked(":TIM:DEL:ENAB?")))
+        result: TimebaseConfigResult = {
+            "mode": mode,
+            "time_per_div": time_per_div,
+            "time_offset": time_offset,
+            "delayed_enabled": delayed_enabled,
+        }
 
-        return DelayedTimebaseEnableResult(enabled=actual_enabled)
+        # Only query delayed scale/offset if enabled
+        if delayed_enabled:
+            result["delayed_time_per_div"] = float(scope._query_checked(":TIM:DEL:SCAL?"))
+            result["delayed_time_offset"] = float(scope._query_checked(":TIM:DEL:OFFS?"))
 
-    @mcp.tool
-    @with_scope_connection
-    async def set_delayed_timebase_scale(
-        time_per_div: DelayedTimeScaleField
-    ) -> DelayedTimebaseScaleResult:
-        """
-        Set zoom window horizontal scale (time/div).
-
-        Must enable delayed timebase first with enable_delayed_timebase(True).
-        """
-        scope._write_checked(f":TIM:DEL:SCAL {time_per_div}")
-
-        # Verify the setting
-        actual_scale = float(scope._query_checked(":TIM:DEL:SCAL?"))
-
-        # Convert to human-readable format
-        if actual_scale >= 1:
-            scale_str = f"{actual_scale:.2f} s/div"
-        elif actual_scale >= 1e-3:
-            scale_str = f"{actual_scale*1e3:.2f} ms/div"
-        elif actual_scale >= 1e-6:
-            scale_str = f"{actual_scale*1e6:.2f} μs/div"
-        else:
-            scale_str = f"{actual_scale*1e9:.2f} ns/div"
-
-        return DelayedTimebaseScaleResult(
-            time_per_div=actual_scale,
-            time_per_div_str=scale_str
-        )
+        return result
 
     @mcp.tool
     @with_scope_connection
-    async def set_delayed_timebase_offset(
-        time_offset: DelayedTimeOffsetField
-    ) -> DelayedTimebaseOffsetResult:
+    async def get_timebase_config() -> TimebaseConfigResult:
         """
-        Set zoom window horizontal position.
+        Get complete timebase configuration.
 
-        Must enable delayed timebase first with enable_delayed_timebase(True).
+        Queries all main and delayed timebase settings without modifying them.
         """
-        scope._write_checked(f":TIM:DEL:OFFS {time_offset}")
+        return _query_timebase_config()
 
-        # Verify the setting
-        actual_offset = float(scope._query_checked(":TIM:DEL:OFFS?"))
+    @mcp.tool
+    @with_scope_connection
+    async def set_timebase_config(
+        mode: Optional[Annotated[TimebaseMode, Field(description="Timebase mode")]] = None,
+        time_per_div: Optional[MainTimeScaleField] = None,
+        time_offset: Optional[TimeOffsetField] = None,
+        delayed_enabled: Optional[Annotated[bool, Field(description="Enable delayed/zoom timebase")]] = None,
+        delayed_time_per_div: Optional[DelayedTimeScaleField] = None,
+        delayed_time_offset: Optional[DelayedTimeOffsetField] = None,
+    ) -> TimebaseConfigResult:
+        """
+        Configure timebase settings. Only provided parameters are modified.
 
-        return DelayedTimebaseOffsetResult(time_offset=actual_offset, units="s")
+        Returns complete timebase configuration after applying changes.
+        """
+        # Apply parameters in dependency order
+
+        # 1. Mode first (affects what's valid - ROLL disables delayed)
+        if mode is not None:
+            scope._write_checked(f":TIM:MODE {mode.value}")
+
+        # 2. Main timebase (scale before offset for valid ranges)
+        if time_per_div is not None:
+            scope._write_checked(f":TIM:MAIN:SCAL {time_per_div}")
+
+        if time_offset is not None:
+            scope._write_checked(f":TIM:MAIN:OFFS {time_offset}")
+
+        # 3. Delayed enable/disable
+        if delayed_enabled is not None:
+            scope._write_checked(f":TIM:DEL:ENAB {'ON' if delayed_enabled else 'OFF'}")
+
+        # 4. Delayed parameters (only if being enabled or already enabled)
+        # Query current delayed state to determine if we can set delayed parameters
+        if delayed_time_per_div is not None or delayed_time_offset is not None:
+            current_delayed = delayed_enabled if delayed_enabled is not None else bool(
+                int(scope._query_checked(":TIM:DEL:ENAB?"))
+            )
+
+            if delayed_time_per_div is not None:
+                if not current_delayed:
+                    raise ValueError("Cannot set delayed timebase scale when delayed timebase is disabled")
+                scope._write_checked(f":TIM:DEL:SCAL {delayed_time_per_div}")
+
+            if delayed_time_offset is not None:
+                if not current_delayed:
+                    raise ValueError("Cannot set delayed timebase offset when delayed timebase is disabled")
+                scope._write_checked(f":TIM:DEL:OFFS {delayed_time_offset}")
+
+        # Return complete updated configuration
+        return _query_timebase_config()
 
     # === ACQUISITION CONTROL TOOLS ===
 
