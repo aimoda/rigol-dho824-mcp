@@ -53,6 +53,7 @@ def _parse_scpi_bool(value: str) -> bool:
         return True
     if normalized in _BOOL_FALSE:
         return False
+    logger.warning("Unexpected boolean response from oscilloscope: %r", value)
     raise ValueError(f"Unexpected boolean response from oscilloscope: {value!r}")
 
 
@@ -1343,9 +1344,11 @@ class RigolDHO824:
         Raises:
             Exception: If SCPI error is detected and raise_on_error is True
         """
+        logger.debug("SCPI write: %s", command)
         self._instr.write(command)
         error_response = self._instr.query(":SYSTem:ERRor?").strip()
         if error_response != '0,"No error"':
+            logger.error("SCPI error after '%s': %s", command, error_response)
             if raise_on_error:
                 raise Exception(f"SCPI error after '{command}': {error_response}")
             else:
@@ -1371,7 +1374,11 @@ class RigolDHO824:
         response = self._instr.query(command)
         error_response = self._instr.query(":SYSTem:ERRor?").strip()
         if error_response != '0,"No error"':
+            logger.error("SCPI error after '%s': %s", command, error_response)
             raise Exception(f"SCPI error after '{command}': {error_response}")
+        # Truncate response for logging if it's very long
+        response_preview = response[:80] + "..." if len(response) > 80 else response
+        logger.debug("SCPI query '%s' -> '%s'", command, response_preview)
         return response
 
     def _query_bool_checked(self, command: str) -> bool:
@@ -1416,7 +1423,12 @@ class RigolDHO824:
         response = self._instr.query_binary_values(command, **kwargs)
         error_response = self._instr.query(":SYSTem:ERRor?").strip()
         if error_response != '0,"No error"':
+            logger.error("SCPI error after '%s': %s", command, error_response)
             raise Exception(f"SCPI error after '{command}': {error_response}")
+        # Log binary query details
+        datatype = kwargs.get('datatype', 'unknown')
+        sample_count = len(response) if hasattr(response, '__len__') else 'unknown'
+        logger.debug("Binary query '%s' (datatype=%s) -> %s samples", command, datatype, sample_count)
         return response  # type: ignore[return-value]
 
     def _disable_ultra_conflicting_features(self) -> None:
@@ -1500,6 +1512,7 @@ class RigolDHO824:
                         continue
                     else:  # Last attempt failed
                         self.last_connection_error = f"Failed to open resource '{self.resource_string}' after 5 attempts: {str(e)}"
+                        logger.error("Connection failed after 5 attempts: %s", self.last_connection_error)
                         return False
 
                 self._instr.timeout = self.timeout
@@ -1525,10 +1538,12 @@ class RigolDHO824:
                         continue
                     else:  # Last attempt failed
                         self.last_connection_error = f"Connected to device but failed to query identity after 5 attempts: {str(e)}"
+                        logger.error("Connection failed after 5 attempts: %s", self.last_connection_error)
                         self.disconnect()
                         return False
 
                 # Connection successful
+                logger.info("Connected to %s: %s", self.resource_string, self._identity)
                 return True
 
             except Exception as e:
@@ -1539,6 +1554,7 @@ class RigolDHO824:
                     continue
                 else:  # Last attempt failed
                     self.last_connection_error = f"Unexpected error during connection after 5 attempts: {str(e)}"
+                    logger.error("Connection failed after 5 attempts: %s", self.last_connection_error)
                     return False
 
         # This should never be reached, but for safety
@@ -1625,6 +1641,7 @@ class RigolDHO824:
             Tuple of (success, error_message). If success is True, error_message is None.
             If success is False, error_message contains details about the failure.
         """
+        logger.info("FTP download start: %s from %s", scope_filename, ip_address)
         try:
             # Connect to FTP server
             ftp = FTP()
@@ -1663,7 +1680,7 @@ class RigolDHO824:
 
             # Hashes match - write to disk
             with open(local_filepath, "wb") as f:
-                f.write(buffer1.read())
+                bytes_written = f.write(buffer1.read())
 
             # Delete file from scope after successful download and verification
             try:
@@ -1672,12 +1689,15 @@ class RigolDHO824:
                 pass  # Some configurations don't allow deletion
 
             ftp.quit()
+            logger.info("FTP download complete: %s (%d bytes)", scope_filename, bytes_written)
             return True, None
 
         except Exception as e:
             # FTP failed (not on network, USB connection, etc.) - fail gracefully
             error_type = type(e).__name__
-            return False, f"FTP transfer failed ({error_type}: {str(e)})"
+            error_msg = f"FTP transfer failed ({error_type}: {str(e)})"
+            logger.error("FTP download failed: %s - %s", scope_filename, error_msg, exc_info=True)
+            return False, error_msg
 
     def dvm_enable(self, enabled: bool) -> None:
         """Enable or disable the Digital Voltmeter."""
@@ -1986,8 +2006,11 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             finally:
                 os.close(fd)
 
+            # Log successful screenshot capture
+            logger.info("Screenshot saved: %s (%d bytes)", file_path, len(png_to_write))
             return to_client_path(file_path) or file_path
-        except Exception:
+        except Exception as e:
+            logger.error("Screenshot capture failed: %s", e, exc_info=True)
             # Best-effort: don't let screenshot failures interrupt the main operation
             return None
 
@@ -2166,6 +2189,8 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         # Create subdirectory for this capture
         capture_dir = tempfile.mkdtemp(prefix=f"waveform_capture_{capture_id}_", dir=temp_dir)
 
+        logger.info("capture_waveform start: channels=%s, capture_id=%s", channels, capture_id)
+
         results = []
 
         # Stop acquisition once for all channels
@@ -2268,6 +2293,8 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
                 # Check for ADC saturation (65535 is max value for 16-bit unsigned)
                 truncated = bool(np.max(raw_data) == 65535) if raw_data else False
+                if truncated:
+                    logger.warning("CH%d waveform saturated (ADC max value 65535 detected)", channel)
 
                 await ctx.report_progress(
                     progress=(channel_idx + 1) / len(channels),
@@ -2321,6 +2348,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                 results.append(result_data)
 
             except Exception as e:
+                logger.warning("CH%d waveform capture failed: %s", channel, e, exc_info=True)
                 await ctx.report_progress(
                     progress=(channel_idx + 1) / len(channels),
                     message=f"Channel {channel}: Error - {str(e)}",
@@ -2385,6 +2413,12 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
             await ctx.report_progress(
                 progress=1.0, message=f"WFM capture skipped: {str(e)}"
             )
+
+        # Log completion summary
+        successful_channels = sum(1 for r in results if "error" not in r)
+        total_points = sum(r.get("points", 0) for r in results if "error" not in r)
+        logger.info("capture_waveform complete: %d/%d channels successful, %d total points",
+                   successful_channels, len(channels), total_points)
 
         return WaveformCaptureResult(
             channels=results,
