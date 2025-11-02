@@ -20,12 +20,18 @@ import numpy as np
 from pydantic import Field
 from fastmcp import FastMCP, Context
 from fastmcp.server.dependencies import get_context
+from fastmcp.utilities.logging import get_logger
 from dotenv import load_dotenv
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 from PIL.ExifTags import Base as ExifTags
 import pyvisa
 import pyvisa.resources
+
+
+# === LOGGING SETUP ===
+
+logger = get_logger(__name__)
 
 
 # === SCPI HELPER FUNCTIONS ===
@@ -1470,10 +1476,10 @@ class RigolDHO824:
                 return True
             except Exception as e:
                 # Connection is dead, proceed to reconnect
-                print("Connection dead")
+                logger.warning("Connection lost, attempting to reconnect")
                 self.disconnect()
 
-        print("Opening up new connection")
+        logger.info("Opening new connection to oscilloscope")
 
         # Retry connection up to 5 times with 1 second delay between attempts
         for attempt in range(5):
@@ -1489,7 +1495,7 @@ class RigolDHO824:
                     )
                 except Exception as e:
                     if attempt < 4:  # Not the last attempt
-                        print(f"Connection attempt {attempt + 1} failed: {str(e)}. Retrying in 1 second...")
+                        logger.warning("Connection attempt %d failed: %s; retrying in 1 second", attempt + 1, e)
                         await asyncio.sleep(1)
                         continue
                     else:  # Last attempt failed
@@ -1513,7 +1519,7 @@ class RigolDHO824:
                     self._identity = self._query_checked("*IDN?").strip()
                 except Exception as e:
                     if attempt < 4:  # Not the last attempt
-                        print(f"Identity query failed on attempt {attempt + 1}: {str(e)}. Retrying in 1 second...")
+                        logger.warning("Identity query failed on attempt %d: %s; retrying in 1 second", attempt + 1, e)
                         self.disconnect()
                         await asyncio.sleep(1)
                         continue
@@ -1528,7 +1534,7 @@ class RigolDHO824:
             except Exception as e:
                 # Catch-all for any unexpected errors
                 if attempt < 4:  # Not the last attempt
-                    print(f"Unexpected error on attempt {attempt + 1}: {str(e)}. Retrying in 1 second...")
+                    logger.exception("Unexpected error during connection attempt %d; retrying in 1 second", attempt + 1)
                     await asyncio.sleep(1)
                     continue
                 else:  # Last attempt failed
@@ -5830,13 +5836,13 @@ def _validate_temp_directory(temp_dir: str) -> None:
 
     # Check if directory exists
     if not os.path.exists(temp_dir):
-        print(f"ERROR: RIGOL_TEMP_DIR directory does not exist: {temp_dir}", file=sys.stderr)
-        print("Please create the directory or unset RIGOL_TEMP_DIR to use system default.", file=sys.stderr)
+        logger.error("RIGOL_TEMP_DIR directory does not exist: %s", temp_dir)
+        logger.error("Please create the directory or unset RIGOL_TEMP_DIR to use system default")
         sys.exit(1)
 
     # Check if it's actually a directory
     if not os.path.isdir(temp_dir):
-        print(f"ERROR: RIGOL_TEMP_DIR is not a directory: {temp_dir}", file=sys.stderr)
+        logger.error("RIGOL_TEMP_DIR is not a directory: %s", temp_dir)
         sys.exit(1)
 
     # Check if directory is writable
@@ -5847,12 +5853,10 @@ def _validate_temp_directory(temp_dir: str) -> None:
         os.close(fd)
         os.unlink(test_file)
     except (OSError, PermissionError) as e:
-        print(f"ERROR: RIGOL_TEMP_DIR is not writable: {temp_dir}", file=sys.stderr)
-        print(f"Permission error: {e}", file=sys.stderr)
+        logger.error("RIGOL_TEMP_DIR is not writable: %s (Permission error: %s)", temp_dir, e)
         sys.exit(1)
     except Exception as e:
-        print(f"ERROR: Failed to validate RIGOL_TEMP_DIR: {temp_dir}", file=sys.stderr)
-        print(f"Error: {e}", file=sys.stderr)
+        logger.exception("Failed to validate RIGOL_TEMP_DIR: %s", temp_dir)
         sys.exit(1)
 
 
@@ -5891,8 +5895,8 @@ def main():
         client_temp_dir = os.getenv("RIGOL_TEMP_DIR")
         if not client_temp_dir:
             import sys
-            print("ERROR: RIGOL_TEMP_DIR is required when RIGOL_CONTAINER_PATH_TRANSLATION is enabled", file=sys.stderr)
-            print("Set RIGOL_TEMP_DIR to the host-side path (e.g., /Users/dave/rigol-data)", file=sys.stderr)
+            logger.error("RIGOL_TEMP_DIR is required when RIGOL_CONTAINER_PATH_TRANSLATION is enabled")
+            logger.error("Set RIGOL_TEMP_DIR to the host-side path (e.g., /Users/dave/rigol-data)")
             sys.exit(1)
 
         # Create the server with path translation
