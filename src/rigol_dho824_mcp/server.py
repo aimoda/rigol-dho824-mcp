@@ -868,7 +868,7 @@ class WaveformChannelError(TypedDict):
     error: Annotated[str, Field(description="Error message for this channel")]
 
 
-class WaveformCaptureResult(TypedDict):
+class WaveformCaptureResult(TypedDict, total=False):
     """Result for waveform capture operations including channel data and optional WFM file.
 
     Each requested channel returns either a successful data object or an error object with an
@@ -888,6 +888,12 @@ class WaveformCaptureResult(TypedDict):
         Optional[str],
         Field(
             description="File path to the saved WFM file (contains all channels). This is the raw oscilloscope format intended for archival and verification purposes, not primary analysis. Use channel JSON files for data processing. None if WFM save failed."
+        ),
+    ]
+    wfm_error: Annotated[
+        Optional[str],
+        Field(
+            description="Error message if WFM file download failed. Provides detailed information about the failure (file not found, hash mismatch, network error, etc.)."
         ),
     ]
 
@@ -1557,7 +1563,7 @@ class RigolDHO824:
 
     def download_file_via_ftp(
         self, ip_address: str, scope_filename: str, local_filepath: str
-    ) -> bool:
+    ) -> tuple[bool, Optional[str]]:
         """
         Download file from oscilloscope via FTP with hash verification.
 
@@ -1570,7 +1576,8 @@ class RigolDHO824:
             local_filepath: Local file path to save downloaded file
 
         Returns:
-            True if download successful and hashes match, False otherwise
+            Tuple of (success, error_message). If success is True, error_message is None.
+            If success is False, error_message contains details about the failure.
         """
         try:
             # Connect to FTP server
@@ -1583,7 +1590,10 @@ class RigolDHO824:
 
             if scope_filename not in files:
                 ftp.quit()
-                return False
+                available_files = ", ".join(files[:10]) if files else "(none)"
+                if len(files) > 10:
+                    available_files += f" ... and {len(files) - 10} more"
+                return False, f"File '{scope_filename}' not found on scope. Available files: {available_files}"
 
             # First download to memory
             buffer1 = io.BytesIO()
@@ -1603,7 +1613,7 @@ class RigolDHO824:
             if hash1 != hash2:
                 # Hashes don't match - corruption detected, don't delete from scope
                 ftp.quit()
-                return False
+                return False, f"Integrity check failed - MD5 hash mismatch (hash1: {hash1}, hash2: {hash2}). File may be corrupted during transfer."
 
             # Hashes match - write to disk
             with open(local_filepath, "wb") as f:
@@ -1616,11 +1626,12 @@ class RigolDHO824:
                 pass  # Some configurations don't allow deletion
 
             ftp.quit()
-            return True
+            return True, None
 
-        except Exception:
+        except Exception as e:
             # FTP failed (not on network, USB connection, etc.) - fail gracefully
-            return False
+            error_type = type(e).__name__
+            return False, f"FTP transfer failed ({error_type}: {str(e)})"
 
     def dvm_enable(self, enabled: bool) -> None:
         """Enable or disable the Digital Voltmeter."""
@@ -2277,6 +2288,7 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
         # Capture WFM file for future-proofing and scientific accuracy
         # WFM contains all enabled channels in a single file
         wfm_saved_path: Optional[str] = None
+        wfm_error_msg: Optional[str] = None
 
         # Generate random 10-char string to avoid overwriting
         wfm_filename = f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=10))}.wfm"
@@ -2302,17 +2314,20 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
                 await ctx.report_progress(
                     progress=1.0, message="Downloading WFM file via FTP..."
                 )
-                if scope.download_file_via_ftp(ip_address, wfm_filename, wfm_local_path):
+                success, error = scope.download_file_via_ftp(ip_address, wfm_filename, wfm_local_path)
+                if success:
                     wfm_saved_path = wfm_local_path
                     await ctx.report_progress(
                         progress=1.0, message=f"WFM file saved: {to_client_path(wfm_local_path)}"
                     )
                 else:
+                    wfm_error_msg = error
                     await ctx.report_progress(
                         progress=1.0,
-                        message="WFM download failed (FTP unavailable) - skipping",
+                        message=f"WFM download failed: {error}",
                     )
             else:
+                wfm_error_msg = "Not a network connection (FTP not available)"
                 await ctx.report_progress(
                     progress=1.0,
                     message="WFM download skipped (not a network connection)",
@@ -2320,11 +2335,16 @@ def create_server(temp_dir: str, client_temp_dir: Optional[str] = None) -> FastM
 
         except Exception as e:
             # WFM capture failed - report but don't fail the whole operation
+            wfm_error_msg = f"WFM save/download exception: {type(e).__name__}: {str(e)}"
             await ctx.report_progress(
                 progress=1.0, message=f"WFM capture skipped: {str(e)}"
             )
 
-        return WaveformCaptureResult(channels=results, wfm_file_path=to_client_path(wfm_saved_path))
+        return WaveformCaptureResult(
+            channels=results,
+            wfm_file_path=to_client_path(wfm_saved_path),
+            wfm_error=wfm_error_msg,
+        )
 
     # === CHANNEL CONTROL TOOLS ===
 
