@@ -1,5 +1,8 @@
 # Rigol DHO824 MCP Server
 
+[![PyPI version](https://img.shields.io/pypi/v/rigol-dho824-mcp.svg)](https://pypi.org/project/rigol-dho824-mcp/)
+[![GHCR](https://ghcr-badge.yuchanns.xyz/aimoda/rigol-dho824-mcp/latest_tag?label=ghcr&ignore=latest&trim=)](https://github.com/aimoda/rigol-dho824-mcp/pkgs/container/rigol-dho824-mcp)
+
 An MCP (Model Context Protocol) server for controlling and querying the Rigol DHO824 oscilloscope.
 
 ![Demo of oscilloscope in action](https://raw.githubusercontent.com/aimoda/rigol-dho824-mcp/main/demo.webp)
